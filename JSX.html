@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<!-- JSX: Javascript UNIX
+
+Highlights:
+ - Kernel with advanced features like scheduling, suspension, filesystem, graphics pipeline, and more
+ - Fully functional command line
+ - Unified userland
+ - Separate userspace and kernel space
+ - UNIX-like commands, such as touch, ls, cd, sleep(), exit(), and system()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+!-->
+
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>JSX</title>
+    </head>
+
+    <body>
+    <canvas></canvas>
+
+    <!-- Filesystem Initialization !-->
+    <script>
+        let initial_filesystem = [];
+
+        /* How to create a file using plain text 
+        
+            1. Push a new array to initial_filesystem specifying the path in the first element
+            2. If the file is not a directory, put data in the second element
+        */
+
+        // Basic UNIX filesystem initialization
+        initial_filesystem.push(["/bin"]);
+        initial_filesystem.push(["/js"]);
+        initial_filesystem.push(["/home"]);
+        initial_filesystem.push(["/opt"]);
+
+        initial_filesystem.push(["/usr"]);
+        initial_filesystem.push(["/usr/bin"]);
+
+        initial_filesystem.push(["/etc"]);
+        initial_filesystem.push(["/etc/init.d"]);
+    </script>
+
+    <!-- Kernel !-->
+    <script>
+        let user_eval = function(code) {
+            eval(code);
+        }
+        {
+            // Filesystem
+            let files = [];
+            let inodes = 0;
+            // Inodes are file indexes in the files[] array
+            // Load storage filesystem
+            let create_file = function(path, filetype, data) {
+
+            }
+            function mkdir(path) {
+
+            }
+            mkdir("/"); // Create root directory
+            let map_file = function(path) {
+
+            }
+            // System calls
+            // Root filesystem initialization
+
+            // Users
+
+            /* Paths
+                Default paths are:
+                /usr/bin
+                ~/.local/bin
+            */
+           let env_paths = ["/usr/bin", "~/.local/bin"];
+
+            // Seats
+
+            // Root eval
+            let root_eval = function(code) {
+                eval(code);
+            }
+
+            // Command line
+            function system(command) {
+
+            }
+            
+            // Scheduler
+            let processes = [];
+            let pids = 0;
+            let Process = function (exec) {
+                this.working_directory = "/";
+                this.pid = pids++;
+            }
+        }
+    </script>
+    </body>
+</html>
