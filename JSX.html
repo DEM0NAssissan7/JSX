@@ -85,23 +85,13 @@ Highlights:
         });
     </script>
 
-    <!-- Userland -->
-    <script>
-        {
-            // Shell
-            create_file("/bin/sh", function () {
-
-            });
-        }
-
-    </script>
-
     <!-- Drivers -->
     <script>
         /* The goal of drivers are to 
             1. Map devices to files
             2. Deal with edge cases
         */
+       // Mouse driver
         create_file("/etc/init.d/mouse", function () {
             let struct = {
                 vectorX: 0,
@@ -110,7 +100,7 @@ Highlights:
                 y: 0,
                 pressed: 0
             };
-            fopen("/dev/mouse0", "w", struct);
+            open("/dev/mouse0", "w", struct);
             document.onmousemove = function (event) {
                 struct.vectorX = struct.x - event.pageX + 8;
                 struct.vectorY = struct.y - event.pageY + 8;
@@ -128,6 +118,77 @@ Highlights:
             }
 
         });
+
+        // Keyboard driver
+        create_file("/etc/init.d/keyboard", function () {
+            let key = "";
+            open("/dev/keyboard0", "w", key);
+            document.onkeydown = function() {
+                key = event.key;
+            };
+            this.main = function () {
+                exit();
+            }
+        });
+
+        // Graphics driver
+        create_file("/etc/init.d/graphics", function() {
+            let canvas = document.getElementById("canvas");
+            open("/dev/canvas0", "w", canvas);
+            open("/dev/graphics0", "w", canvas.getContext("2d"));
+            this.main = function() {
+                // Color black
+                let graphics = open("/dev/graphics0", "r");
+                graphics.fillStyle = "black";
+                graphics.fillRect(0, 0, graphics.canvas.width, graphics.canvas.height);
+                exit();
+            }
+        });
+
+        // Virtual console
+        create_file("/etc/init.d/ttyd", function() {
+            // Create a text framebuffer where each element influences a character on-screen
+            let graphics = open("/dev/graphics0", "r");
+            let text_size = 16;
+            let height_ratio = 1.42857;
+            graphics.textSize = text_size;
+
+            let width = Math.floor(graphics.canvas.width / (text_size * height_ratio));
+            let height = Math.floor(graphics.canvas.height / text_size);
+            let buffer = [];
+
+            // Initialize buffer
+            for(let i = 0; i < width * height; i++)
+                buffer[i] = "";
+
+            open("/dev/tty0", "w", {
+                width: width,
+                height: height,
+                framebuffer: "/dev/tty0fb"
+            });
+            open("/dev/tty0fb", "w", [0, ""]);
+
+            this.main = function(){
+                poll("/dev/tty0fb", function() {
+                    let fb_change = open("/dev/tty0fb", "r");
+
+                });
+                let graphics = open("/dev/graphics0", "r");
+
+                sleep(100);
+            }
+        });
+    </script>
+
+    <!-- Userland -->
+    <script>
+        {
+            // Shell
+            create_file("/bin/sh", function () {
+
+            });
+        }
+
     </script>
 
     <!-- Library Functions -->
@@ -191,7 +252,8 @@ Highlights:
                 this.pid = pids;
                 this.threads = [];
                 this.user = 0;
-
+                this.events = [];
+                
                 this.threads.push(new Thread(code, this));
             }
 
@@ -217,6 +279,7 @@ Highlights:
                 this.owner = c_user;
                 this.permissions = 664;
                 this.is_mountpoint = false;
+                this.mountid = null;
             }
             let Filesystem = function () {
                 this.path = "/";
@@ -284,65 +347,36 @@ Highlights:
 
                 return string;
             }
-            Filesystem.prototype.create_file = function(path, data, filetype) {
-                let path_names = map_path_names(expand_filepath(path));
-                let inode = 0;
-                let file = this.files[0];
-                let parent = this.files[0];
-                for (let i = 0; i < path_names.length; i++) {
-                    let directory = this.files[inode];
-                    let success = false;
-                    for (let j = 0; j < directory.data.length; j++) {
-                        let child_file = this.files[directory.data[j]];
-                        if (child_file.filename === path_names[i]) {
-                            success = true;
-                            if (child_file.mountpoint === true)
-                                throw new Error("Mountpoint exists on path.");
-                            else
-                                inode = child_file.inode;
-                            parent = file;
-                            file = this.files[inode];
-                            continue;
-                        }
-                    }
-                    if (success === false && i < path_names.length - 1)
-                        throw new Error("Cannot create file. '" + path + "' does not exist.");
-                    if(success === true && i === path_names.length - 1)
-                        throw new Error("File already exists.");
-               }
-                inode = this.inodes++;
-                this.files.push(new VFile(path, data, filetype, inode));
-                file.data.push(inode);
-            }
-            let get_file = function (path, supress_error) {
+            let get_file = function (path, suppress_error) {
+                if(path === "") throw new Error("Cannot have an empty path.");
                 let path_names = map_path_names(expand_filepath(path));
                 let inode = 0;
                 let filesystem = mountpoints[0];
                 let file = filesystem.files[0];
-                let parent = filesystem.files[0];
+                let referenced_file = file;
+                let parent = file;
                 for (let i = 0; i < path_names.length; i++) {
-                    let directory = filesystem.files[inode];
                     let success = false;
-                    for (let j = 0; j < directory.data.length; j++) {
-                        let child_file = filesystem.files[directory.data[j]];
+                    for (let j = 0; j < file.data.length; j++) {
+                        let child_file = filesystem.files[file.data[j]];
+                        if(!child_file) break;
                         if (child_file.filename === path_names[i]) {
                             success = true;
-                            if (child_file.mountpoint === true) {
-                                for (let i = 0; i < mountpoints.length; i++) {
-                                    if (child_file.path === mountpoints[i].path) {
-                                        filesystem = mountpoints[i];
-                                        inode = 0;
-                                    }
-                                }
-                            } else
-                                inode = child_file.inode;
+                            inode = file.data[j]
                             parent = file;
-                            file = filesystem.files[inode];
-                            continue;
+                            referenced_file = child_file;
+                            file = child_file;
+
+                            if (child_file.is_mountpoint === true) {
+                                filesystem = mountpoints[file.mountid];
+                                file = filesystem.files[0];
+                            }
+                            break;
                         }
                     }
+                    if(file.filetype !== "d") break;
                     if (success === false) {
-                        if (!supress_error) throw new Error("File '" + path + "' does not exist.");
+                        if (!suppress_error) throw new Error("File '" + path + "' does not exist.");
                         break;
                     }
                 }
@@ -350,6 +384,7 @@ Highlights:
                     filesystem: filesystem,
                     inode: inode,
                     file: file,
+                    referenced_file: referenced_file,
                     parent: parent
                 };
             }
@@ -376,10 +411,11 @@ Highlights:
             function rmdir(path) {
                 let file = get_file(path);
                 if (file.file.data.length === 0) {
-                    file.filesystem.splice(file.inode, 1);
+                    file.parent.data.splice(file.parent.data.indexOf(file.inode), 1);
+                    file.filesystem.files[file.inode] = undefined;
                 } else throw new Error("Specified directory is not empty.");
             }
-            function fopen(path, mode, data) {
+            function open(path, mode, data) {
                 let file;
                 switch (mode) {
                     case "r":
@@ -408,7 +444,7 @@ Highlights:
                 let file = get_file(path);
                 if (file.file.filetype !== "-") throw new Error("File is not normal.");
                 file.parent.data.splice(file.parent.data.indexOf(file.inode), 1);
-                file.filesystem.splice(file.inode, 1);
+                file.filesystem[file.inode] = undefined;
             }
             function stat(path) {
                 return get_file(path).file;
@@ -437,9 +473,10 @@ Highlights:
             let fs_mount = function (filesystem, path) {
                 let file = get_file(path).file;
                 if (file.filetype !== "d") throw new Error("Mountpoint must be a directory");
-                file.data = filesystem.files[0].data;
+                if(filesystem.mountid !== null) throw new Error("Filesystem is already mounted");
                 file.is_mountpoint = true;
-                filesystem.path = path;
+                file.mountid = mountids;
+                filesystem.path = expand_filepath(path);
                 filesystem.mountid = mountids++;
                 mountpoints.push(filesystem);
             }
@@ -448,27 +485,111 @@ Highlights:
                 fs_mount(get_file(device).file.data, path);
             }
             function umount(path) {
-                
+                let descriptor = get_file(path);
+                let file = descriptor.file;
+                let referenced_file = descriptor.referenced_file;
+                let filesystem = descriptor.filesystem;
+                if(referenced_file.is_mountpoint !== true && !file.data.mountid) throw new Error("A mountpoint or mounted device must be specified");
+                if(filesystem.path === "/") throw new Error("Cannot unmount root.");
+                if(file.data.mountid){ // If the specified path is a mounted device
+                    filesystem = file.data;
+                    file = get_file(filesystem.path).file;
+                }
+                referenced_file.is_mountpoint = false;
+                referenced_file.mountid = null;
+                filesystem.path = "/";
+                mountpoints[filesystem.mountid] = undefined;
+                filesystem.mountid = null;
             }
 
             // Logging
             let log = function (message) {
-                fopen("/var/kernel/logs", "a", "[" + get_time() + "]: " + message + '\n');
+                open("/var/log/kernel", "a", "[" + get_time() + "]: " + message + '\n');
             }
 
-            // Rootfs virtual disk driver
+            // Initialize root virtual filesystem
             let tmprootfs = create_fs();
-            fs_mount(tmprootfs, "/"); // Mount tmprootfs
+            tmprootfs.mountid = mountids++;
+            mountpoints.push(tmprootfs);
 
+            // Create kernelfs files and mountpoints
+            // Create devfs for managing devices, crucial for kernel function
+            let devfs = create_fs();
             mkdir("/dev");
-            mkdir("/sys");
-            mkdir("/proc");
+            fs_mount(devfs, "/dev");
+            open("/dev/devfs", "w", devfs);
 
-            mkdir("/var");
-            mkdir("/var/kernel");
-            fopen("/var/kernel/logs", "w", "");
+            let kernelfs_mounts = [];
+            let create_kernelfs_mount = function(path) {
+                open("/dev/kernelfs" + kernelfs_mounts.length, "w", create_fs()); // Create file reference for filesystem
+                mkdir(path);
+                mount("/dev/kernelfs" + kernelfs_mounts.length, path);
+                kernelfs_mounts.push([path, "/dev/kernelfs" + kernelfs_mounts.length]);
+            }
+            let unmount_kernelfs_mounts = function () {
+                for(let i = 0; i < kernelfs_mounts.length; i++) {
+                    umount(kernelfs_mounts[i][0]);
+                    rmdir(kernelfs_mounts[i][0]);
+                }
+                umount("/dev");
+                rmdir("/dev");
+            }
+            let remount_kernelfs_mounts = function() {
+                mkdir("/dev");
+                fs_mount(devfs, "/dev");
+                for(let i = 0; i < kernelfs_mounts.length; i++) {
+                    mkdir(kernelfs_mounts[i][0]);
+                    mount(kernelfs_mounts[i][1], kernelfs_mounts[i][0]);
+                }
+            }
 
-            log("Temporary rootfs created.");
+            create_kernelfs_mount("/sys");
+            create_kernelfs_mount("/proc");
+            create_kernelfs_mount("/tmp");
+            create_kernelfs_mount("/var");
+            mkdir("/var/log");
+            open("/var/log/kernel", "w", "");
+
+            log("Kernelfs created");
+
+            // Set root
+            let set_root = function(device) {
+                let filesystem = get_file(device).file.data;
+                filesystem.mountid = 0;
+                unmount_kernelfs_mounts();
+                mountpoints[0] = filesystem;
+                remount_kernelfs_mounts();
+            }
+            
+            // Basic disk driver
+            {
+                log("Loading disk driver");
+                // This driver imports the preset files set at the beginning of the program and does all the appropriate disk things.
+                let disk = create_fs();
+                open("/dev/vda", "w", disk);
+
+                // First, the driver creates a temporary mountpoint for the disk and mounts it
+                mkdir("/mnt");
+                mount("/dev/vda", "/mnt");
+
+                // Second, the driver copies all the files specified in initial_filesystem
+                log("Copying files from initial_filesystem");
+                for(let i = 0; i < initial_filesystem.length; i++){
+                    let file = initial_filesystem[i];
+                    if(file.length < 2)
+                        mkdir("/mnt" + expand_filepath(file[0]));
+                    else
+                        open("/mnt" + expand_filepath(file[0]), "w", file[1]);
+                }
+                log("Files copied.");
+
+                // Third, unmount kernelfs and unmount the filesystem from its temporary location. Also, delete /mnt.
+                umount("/mnt");
+                rmdir("/mnt");
+            }
+
+            // Set root filesystem
+            set_root("/dev/vda");
 
             // Root eval
             function root_eval(code) {
@@ -558,14 +679,6 @@ Highlights:
                 panic("Failed to initialize.");
             }
 
-            // Setup init system
-            fopen("/bin/init", "w", function() {
-                this.main = function() {
-                    // Load disk driver
-
-                }
-            });
-
             // Execute init
             log("Running init");
             exec("/bin/init");
@@ -574,7 +687,7 @@ Highlights:
 </head>
 
 <body>
-    <canvas width="400" height="400"></canvas>
+    <canvas width="400" height="400" id="canvas"></canvas>
 </body>
 
 </html>
