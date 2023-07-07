@@ -4,14 +4,14 @@
     */
     // Mouse driver
 create_file("/etc/init.d/mouse", function () {
-    let struct = {
+    var struct = {
         vectorX: 0,
         vectorY: 0,
         x: 0,
         y: 0,
         pressed: 0
     };
-    open("/dev/mouse0", "w", struct);
+    fopen("/dev/mouse0", "w", struct);
     document.onmousemove = function (event) {
         struct.vectorX = struct.x - event.pageX + 8;
         struct.vectorY = struct.y - event.pageY + 8;
@@ -32,10 +32,9 @@ create_file("/etc/init.d/mouse", function () {
 
 // Keyboard driver
 create_file("/etc/init.d/keyboard", function () {
-    let key = "";
-    open("/dev/keyboard0", "w", key);
-    document.onkeydown = function() {
-        key = event.key;
+    fopen("/dev/keyboard0", "w", "");
+    document.onkeydown = function(event) {
+        fopen("/dev/keyboard0", "w", event.key);
     };
     this.main = function () {
         exit();
@@ -44,12 +43,12 @@ create_file("/etc/init.d/keyboard", function () {
 
 // Graphics driver
 create_file("/etc/init.d/graphics", function() {
-    let canvas = document.getElementById("canvas");
-    open("/dev/canvas0", "w", canvas);
-    open("/dev/graphics0", "w", canvas.getContext("2d"));
+    var canvas = document.getElementById("canvas");
+    fopen("/dev/canvas0", "w", canvas);
+    fopen("/dev/graphics0", "w", canvas.getContext("2d"));
     this.main = function() {
         // Color black
-        let graphics = open("/dev/graphics0", "r");
+        var graphics = fopen("/dev/graphics0", "r");
         graphics.fillStyle = "black";
         graphics.fillRect(0, 0, graphics.canvas.width, graphics.canvas.height);
         exit();
@@ -59,34 +58,34 @@ create_file("/etc/init.d/graphics", function() {
 // Virtual console
 create_file("/etc/init.d/ttyd", function() {
     // Create a text framebuffer where each element influences a character on-screen
-    let graphics = open("/dev/graphics0", "r");
-    let text_size = 16;
-    let height_ratio = 1.42857;
+    var graphics = fopen("/dev/graphics0", "r");
+    var text_size = 16;
+    var height_ratio = 1.42857;
     graphics.textSize = text_size;
 
-    let width = Math.floor(graphics.canvas.width / (text_size * height_ratio));
-    let height = Math.floor(graphics.canvas.height / text_size);
-    let buffer = [];
+    var width = Math.floor(graphics.canvas.width / (text_size * height_ratio));
+    var height = Math.floor(graphics.canvas.height / text_size);
+    var buffer = [];
 
     // Initialize buffer
-    for(let i = 0; i < width * height; i++)
+    for(var i = 0; i < width * height; i++)
         buffer[i] = "";
 
-    open("/dev/tty0", "w", {
+    fopen("/dev/tty0", "w", {
         width: width,
         height: height,
         framebuffer: "/dev/tty0fb"
     });
-    open("/dev/tty0fb", "w", [0, ""]);
+    fopen("/dev/tty0fb", "w", [0, ""]);
 
     this.main = function(){
+        // Create poll for framebuffer changes
         poll("/dev/tty0fb", function() {
-            let fb_change = open("/dev/tty0fb", "r");
-            console.log(fb_change);
+            var fb_change = fopen("/dev/tty0fb", "r");
         });
         thread(function() {
             // Text graphics update thread
-            let graphics = open("/dev/graphics0", "r");
+            var graphics = fopen("/dev/graphics0", "r");
             
             sleep(100);
         })

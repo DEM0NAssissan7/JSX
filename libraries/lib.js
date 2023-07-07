@@ -4,8 +4,8 @@ function deep_obj(object) {
 }
 
 {
-    let time = performance.now();
+    var time = Date.now();
     function get_time() {
-        return performance.now() - time;
+        return Date.now() - time;
     }
 }

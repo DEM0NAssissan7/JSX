@@ -1,10 +1,23 @@
+/* Kernel: The heart of an OS
+
+    The kernel serves numerous purposes, of which are the following:
+    1. File management
+    2. Process management
+    3. Driver loading
+    4. System initialization
+    5. Device management
+    6. Users and permissions
+
+    Everything ties back to the kernel.
+*/
 create_file = undefined;
-let user_eval = function (code) {
+var user_eval = function (code) {
     eval(code);
 }
+
 {
     // Uname
-    let utsname = {
+    var utsname = {
         system: "JSX",
         release: "0.01",
     }
@@ -13,19 +26,19 @@ let user_eval = function (code) {
     }
 
     // Users
-    let c_user = 0;
+    var c_user = 0;
     function setuid(uid) {
         if (c_process.user === 0)
             c_process.user = uid;
     }
 
     // Processes
-    let processes = [];
-    let c_process = {};
-    let c_thread = {};
-    let pids = 0;
-    let Thread = function (exec, process) {
-        this.exec = exec; // Create an object from the pass-in code
+    var processes = [];
+    var c_process = {};
+    var c_thread = {};
+    var pids = 0;
+    var Thread = function (exec, process) {
+        this.exec = exec;
         this.last_execution = get_time();
         this.queued = false;
         this.sleep_time = 0;
@@ -34,35 +47,41 @@ let user_eval = function (code) {
         this.suspended = false;
         this.dead = false;
     }
-    let Process = function (code) {
+    var Process = function (code) {
         this.working_directory = "/";
         this.pid = pids;
         this.threads = [];
-        this.user = 0;
+        this.user = c_process.user;
         this.events = [];
         this.suspended = false;
         this.dead = false;
 
-        this.code = new code();
+        var old_process = c_process;
+        var old_thread = c_thread;
+        c_process = this;
+        this.code = new code(); // Create an object from the pass-in code
         this.threads.push(new Thread(this.code.main, this)); // Push the main thread to the stack
+        c_process = old_process;
+        c_thread = old_thread;
     }
 
     // Events
-    let events = [];
-    let eventids = 0;
-    let Event = function (handler) {
+    var events = [];
+    var eventids = 0;
+    var Event = function (handler) {
         this.process = c_process;
         this.thread = c_thread;
         this.user = c_user;
         this.handler = handler;
         this.eventid = eventids++;
     }
-    let run_event = function (eventid) {
-        let event = events[eventid];
+    var run_event = function (eventid) {
+        var event = events[eventid];
+        if (event === null) return;
         if (!event) throw new Error("Event " + eventid + " does not exist.");
-        let old_process = c_process;
-        let old_thread = c_thread;
-        let old_user = c_user;
+        var old_process = c_process;
+        var old_thread = c_thread;
+        var old_user = c_user;
         try {
             c_process = event.process;
             c_thread = event.thread;
@@ -79,14 +98,14 @@ let user_eval = function (code) {
     }
 
     // Filesystem
-    let mountpoints = [];
-    let mountids = 0;
-    let VFile = function (path, data, filetype, inode) {
+    var mountpoints = [];
+    var mountids = 0;
+    var VFile = function (path, data, filetype, inode) {
         this.inode = inode;
         this.path = path;
-        let filename = "";
-        for (let i = 0; i < path.length; i++) {
-            let char = path[i];
+        var filename = "";
+        for (var i = 0; i < path.length; i++) {
+            var char = path[i];
             if (char === "/") {
                 filename = "";
                 continue;
@@ -102,27 +121,27 @@ let user_eval = function (code) {
         this.mountid = null;
         this.events = [];
     }
-    let Filesystem = function () {
+    var Filesystem = function () {
         this.path = "/";
-        let file = new VFile("/", [], "d", 0);
+        var file = new VFile("/", [], "d", 0);
         file.is_mountpoint = true;
         this.files = [file];
         this.inodes = 1;
         this.mountid = null;
     }
-    let create_fs = function () {
+    var create_fs = function () {
         return new Filesystem();
     }
     function mkfs(device) {
-        let file = get_file(device);
+        var file = get_file(device);
         if (file.filetype !== "-") throw new Error("Filesystems can only be created using normal devices");
         get_file(device).file.data = new Filesystem();
     }
-    let map_path_names = function (path) {
-        let file_string = "";
-        let string_list = [];
-        for (let i = 0; i < path.length; i++) {
-            let char = path[i];
+    var map_path_names = function (path) {
+        var file_string = "";
+        var string_list = [];
+        for (var i = 0; i < path.length; i++) {
+            var char = path[i];
             switch (char) {
                 case "/":
                     if (file_string.length !== 0)
@@ -152,34 +171,34 @@ let user_eval = function (code) {
             string_list.push(file_string);
         return string_list;
     }
-    let expand_filepath = function (path) {
-        let prefix = c_process.working_directory;
+    var expand_filepath = function (path) {
+        var prefix = c_process.working_directory;
         if (path[0] === "/" || !prefix)
             prefix = [];
 
-        let prefix_path_strings = map_path_names(prefix);
-        let input_path_strings = map_path_names(path);
+        var prefix_path_strings = map_path_names(prefix);
+        var input_path_strings = map_path_names(path);
 
-        let string = "";
-        for (let i = 0; i < prefix_path_strings.length; i++)
+        var string = "";
+        for (var i = 0; i < prefix_path_strings.length; i++)
             string += "/" + prefix_path_strings[i];
-        for (let i = 0; i < input_path_strings.length; i++)
+        for (var i = 0; i < input_path_strings.length; i++)
             string += "/" + input_path_strings[i];
 
         return string;
     }
-    let get_file = function (path, suppress_error) {
+    var get_file = function (path, suppress_error) {
         if (path === "") throw new Error("Cannot have an empty path.");
-        let path_names = map_path_names(expand_filepath(path));
-        let inode = 0;
-        let filesystem = mountpoints[0];
-        let file = filesystem.files[0];
-        let referenced_file = file;
-        let parent = file;
-        for (let i = 0; i < path_names.length; i++) {
-            let success = false;
-            for (let j = 0; j < file.data.length; j++) {
-                let child_file = filesystem.files[file.data[j]];
+        var path_names = map_path_names(expand_filepath(path));
+        var inode = 0;
+        var filesystem = mountpoints[0];
+        var file = filesystem.files[0];
+        var referenced_file = file;
+        var parent = file;
+        for (var i = 0; i < path_names.length; i++) {
+            var success = false;
+            for (var j = 0; j < file.data.length; j++) {
+                var child_file = filesystem.files[file.data[j]];
                 if (!child_file) break;
                 if (child_file.filename === path_names[i]) {
                     success = true;
@@ -209,7 +228,7 @@ let user_eval = function (code) {
             parent: parent
         };
     }
-    let check_file_exists = function (path) {
+    var check_file_exists = function (path) {
         try {
             get_file(path);
         } catch (e) {
@@ -217,11 +236,11 @@ let user_eval = function (code) {
         }
         return true;
     }
-    let create_file = function (path, data, filetype) {
+    var create_file = function (path, data, filetype) {
         if (check_file_exists(path)) throw new Error("'" + path + "' already exists.");
-        let parent_directory = get_file(path, true);
-        let filesystem = parent_directory.filesystem;
-        let inode = filesystem.inodes++;
+        var parent_directory = get_file(path, true);
+        var filesystem = parent_directory.filesystem;
+        var inode = filesystem.inodes++;
         filesystem.files.push(new VFile(path, data, filetype, inode));
         parent_directory.file.data.push(inode);
     }
@@ -230,14 +249,14 @@ let user_eval = function (code) {
         create_file(path, [], "d");
     }
     function rmdir(path) {
-        let file = get_file(path);
+        var file = get_file(path);
         if (file.file.data.length === 0) {
             file.parent.data.splice(file.parent.data.indexOf(file.inode), 1);
             file.filesystem.files[file.inode] = undefined;
         } else throw new Error("Specified directory is not empty.");
     }
-    function open(path, mode, data) {
-        let file;
+    function fopen(path, mode, data) {
+        var file;
         switch (mode) {
             case "r":
                 file = get_file(path).file;
@@ -249,7 +268,7 @@ let user_eval = function (code) {
                 file = get_file(path).file;
                 if (file.filetype === "d") throw new Error("Specified file is a directory.");
                 file.data = data;
-                for (let i = 0; i < file.events.length; i++)
+                for (var i = 0; i < file.events.length; i++)
                     run_event(file.events[i]);
                 return data;
             case "a":
@@ -258,13 +277,13 @@ let user_eval = function (code) {
                 file = get_file(path).file;
                 if (file.filetype === "d") throw new Error("Specified file is a directory.");
                 file.data += data;
-                for (let i = 0; i < file.events.length; i++)
+                for (var i = 0; i < file.events.length; i++)
                     run_event(file.events[i]);
                 return file.data;
         }
     }
     function unlink(path) {
-        let file = get_file(path);
+        var file = get_file(path);
         if (file.file.filetype !== "-") throw new Error("File is not normal.");
         file.parent.data.splice(file.parent.data.indexOf(file.inode), 1);
         file.filesystem[file.inode] = undefined;
@@ -276,31 +295,31 @@ let user_eval = function (code) {
         get_file(path).file.permissions = permissions;
     }
     function poll(path, handler) {
-        let event = new Event(handler);
+        var event = new Event(handler);
         get_file(path).file.events.push(event.eventid);
         events.push(event);
         return event.eventid;
     }
     function rmevent(eventid) {
-        events[eventid] = undefined;
+        events[eventid] = null;
     }
     function chdir(path) {
         c_process.working_directory = path;
     }
     function readdir(path) {
-        let file_descriptor = get_file(path);
-        let file = file_descriptor.file;
-        let filesystem = file_descriptor.filesystem;
+        var file_descriptor = get_file(path);
+        var file = file_descriptor.file;
+        var filesystem = file_descriptor.filesystem;
         if (file.filetype !== "d") throw new Error("Specified file is not a directory.");
-        let child_files = [];
-        for (let i = 0; i < file.data.length; i++) {
-            let child_file = filesystem.files[file.data[i]];
+        var child_files = [];
+        for (var i = 0; i < file.data.length; i++) {
+            var child_file = filesystem.files[file.data[i]];
             child_files.push(child_file.filename);
         }
         return child_files;
     }
-    let fs_mount = function (filesystem, path) {
-        let file = get_file(path).file;
+    var fs_mount = function (filesystem, path) {
+        var file = get_file(path).file;
         if (file.filetype !== "d") throw new Error("Mountpoint must be a directory");
         if (filesystem.mountid !== null) throw new Error("Filesystem is already mounted");
         file.is_mountpoint = true;
@@ -314,10 +333,10 @@ let user_eval = function (code) {
         fs_mount(get_file(device).file.data, path);
     }
     function umount(path) {
-        let descriptor = get_file(path);
-        let file = descriptor.file;
-        let referenced_file = descriptor.referenced_file;
-        let filesystem = descriptor.filesystem;
+        var descriptor = get_file(path);
+        var file = descriptor.file;
+        var referenced_file = descriptor.referenced_file;
+        var filesystem = descriptor.filesystem;
         if (referenced_file.is_mountpoint !== true && !file.data.mountid) throw new Error("A mountpoint or mounted device must be specified");
         if (filesystem.path === "/") throw new Error("Cannot unmount root.");
         if (file.data.mountid) { // If the specified path is a mounted device
@@ -332,41 +351,41 @@ let user_eval = function (code) {
     }
 
     // Logging
-    let log = function (message) {
-        open("/var/log/kernel", "a", "[" + get_time() + "]: " + message + '\n');
+    var log = function (message) {
+        fopen("/var/log/kernel", "a", "[" + get_time() + "]: " + message + '\n');
     }
 
     // Initialize root virtual filesystem
-    let tmprootfs = create_fs();
+    var tmprootfs = create_fs();
     tmprootfs.mountid = mountids++;
     mountpoints.push(tmprootfs);
 
     // Create kernelfs files and mountpoints
     // Create devfs for managing devices, crucial for kernel function
-    let devfs = create_fs();
+    var devfs = create_fs();
     mkdir("/dev");
     fs_mount(devfs, "/dev");
-    open("/dev/devfs", "w", devfs);
+    fopen("/dev/devfs", "w", devfs);
 
-    let kernelfs_mounts = [];
-    let create_kernelfs_mount = function (path) {
-        open("/dev/kernelfs" + kernelfs_mounts.length, "w", create_fs()); // Create file reference for filesystem
+    var kernelfs_mounts = [];
+    var create_kernelfs_mount = function (path) {
+        fopen("/dev/kernelfs" + kernelfs_mounts.length, "w", create_fs()); // Create file reference for filesystem
         mkdir(path);
         mount("/dev/kernelfs" + kernelfs_mounts.length, path);
         kernelfs_mounts.push([path, "/dev/kernelfs" + kernelfs_mounts.length]);
     }
-    let unmount_kernelfs_mounts = function () {
-        for (let i = 0; i < kernelfs_mounts.length; i++) {
+    var unmount_kernelfs_mounts = function () {
+        for (var i = 0; i < kernelfs_mounts.length; i++) {
             umount(kernelfs_mounts[i][0]);
             rmdir(kernelfs_mounts[i][0]);
         }
         umount("/dev");
         rmdir("/dev");
     }
-    let remount_kernelfs_mounts = function () {
+    var remount_kernelfs_mounts = function () {
         mkdir("/dev");
         fs_mount(devfs, "/dev");
-        for (let i = 0; i < kernelfs_mounts.length; i++) {
+        for (var i = 0; i < kernelfs_mounts.length; i++) {
             mkdir(kernelfs_mounts[i][0]);
             mount(kernelfs_mounts[i][1], kernelfs_mounts[i][0]);
         }
@@ -377,13 +396,13 @@ let user_eval = function (code) {
     create_kernelfs_mount("/tmp");
     create_kernelfs_mount("/var");
     mkdir("/var/log");
-    open("/var/log/kernel", "w", "");
+    fopen("/var/log/kernel", "w", "");
 
     log("Kernelfs created");
 
     // Set root
-    let set_root = function (device) {
-        let filesystem = get_file(device).file.data;
+    var set_root = function (device) {
+        var filesystem = get_file(device).file.data;
         filesystem.mountid = 0;
         unmount_kernelfs_mounts();
         mountpoints[0] = filesystem;
@@ -394,8 +413,8 @@ let user_eval = function (code) {
     {
         log("Loading disk driver");
         // This driver imports the preset files set at the beginning of the program and does all the appropriate disk things.
-        let disk = create_fs();
-        open("/dev/vda", "w", disk);
+        var disk = create_fs();
+        fopen("/dev/vda", "w", disk);
 
         // First, the driver creates a temporary mountpoint for the disk and mounts it
         mkdir("/mnt");
@@ -403,14 +422,14 @@ let user_eval = function (code) {
 
         // Second, the driver copies all the files specified in initial_filesystem
         log("Copying files from initial_filesystem");
-        for (let i = 0; i < initial_filesystem.length; i++) {
-            let file = initial_filesystem[i];
+        for (var i = 0; i < initial_filesystem.length; i++) {
+            var file = initial_filesystem[i];
             if (file.length < 2)
                 mkdir("/mnt" + expand_filepath(file[0]));
             else
-                open("/mnt" + expand_filepath(file[0]), "w", file[1]);
+                fopen("/mnt" + expand_filepath(file[0]), "w", file[1]);
         }
-        log("Files copied.");
+        log("Files copied from initial_filesystem");
 
         // Third, unmount kernelfs and unmount the filesystem from its temporary location. Also, delete /mnt.
         umount("/mnt");
@@ -426,19 +445,19 @@ let user_eval = function (code) {
     }
 
     // System suspension
-    let suspended = false;
+    var suspended = false;
 
     // Scheduler
-    let threads = [];
-    let scheduler = function () {
+    var threads = [];
+    var scheduler = function () {
         if (!suspended) {
-            let start_time = get_time();
+            var start_time = get_time();
             // Push ready threads into the execution line
-            for (let i = 0; i < processes.length; i++) {
-                let process = processes[i];
+            for (var i = 0; i < processes.length; i++) {
+                var process = processes[i];
                 if (process.suspended === true) continue;
-                for (let j = 0; j < process.threads.length; j++) {
-                    let thread = process.threads[j];
+                for (var j = 0; j < process.threads.length; j++) {
+                    var thread = process.threads[j];
                     if (thread.dead === true) {
                         process.threads.splice(j, 1);
                         continue;
@@ -451,9 +470,9 @@ let user_eval = function (code) {
             }
 
             while (threads.length > 0) {
-                let time = get_time();
+                var time = get_time();
                 if (time > start_time + 100) break; // Scheduler watchdog
-                let thread = threads[0];
+                var thread = threads[0];
 
                 c_thread = thread;
                 c_process = thread.process;
@@ -474,7 +493,7 @@ let user_eval = function (code) {
                 threads.splice(0, 1); // Clear the thread from the execution stack
             }
             c_thread = {};
-            c_process = {};
+            c_process = {user: 0};
             c_user = 0;
         }
     }
@@ -501,8 +520,8 @@ let user_eval = function (code) {
     }
 
     // Panic
-    let panicked = false;
-    let panic = function (message) {
+    var panicked = false;
+    var panic = function (message) {
         panicked = true;
         console.error("FATAL: Kernel panic -> " + message);
         log("Kernel panicked: " + message);
@@ -510,11 +529,12 @@ let user_eval = function (code) {
     }
 
     // Main loop
-    let main = function () {
+    var main = function () {
         scheduler();
         if (panicked === false)
             setTimeout(main, 0);
     }
+    
     try {
         log("Starting main loop");
         main();
