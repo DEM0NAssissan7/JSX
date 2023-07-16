@@ -32,9 +32,10 @@ create_file("/etc/init.d/mouse", function () {
 
 // Keyboard driver
 create_file("/etc/init.d/keyboard", function () {
-    fopen("/dev/keyboard0", "w", "");
+    let key = "";
+    open("/dev/keyboard0", "w", key);
     document.onkeydown = function(event) {
-        fopen("/dev/keyboard0", "w", event.key);
+        open("/dev/keyboard0", "w", event.key);
     };
     this.main = function () {
         exit();
@@ -58,14 +59,21 @@ create_file("/etc/init.d/graphics", function() {
 // Virtual console
 create_file("/etc/init.d/ttyd", function() {
     // Create a text framebuffer where each element influences a character on-screen
-    var graphics = fopen("/dev/graphics0", "r");
-    var text_size = 16;
-    var height_ratio = 1.42857;
-    graphics.textSize = text_size;
+    let graphics = open("/dev/graphics0", "r");
+    // let text_size = 16;
+    let height_ratio = 1.4;
+    graphics.font = "12px Monospace"
+    let canvas_width = graphics.canvas.width;
+    let canvas_height = graphics.canvas.height;
 
-    var width = Math.floor(graphics.canvas.width / (text_size * height_ratio));
-    var height = Math.floor(graphics.canvas.height / text_size);
-    var buffer = [];
+    // Create constants for the text width and height
+    let text_size = graphics.measureText("█");
+    text_size.height = Math.round(text_size.width * height_ratio);
+
+    // Create text grid
+    let width = Math.floor(canvas_width / text_size.width);
+    let height = Math.floor(canvas_height / text_size.height);
+    let buffer = [];
 
     // Initialize buffer
     for(var i = 0; i < width * height; i++)
@@ -81,12 +89,25 @@ create_file("/etc/init.d/ttyd", function() {
     this.main = function(){
         // Create poll for framebuffer changes
         poll("/dev/tty0fb", function() {
-            var fb_change = fopen("/dev/tty0fb", "r");
+            let fb_change = open("/dev/tty0fb", "r");
+            buffer[fb_change[0]] = fb_change[1];
         });
         thread(function() {
             // Text graphics update thread
-            var graphics = fopen("/dev/graphics0", "r");
-            
+            let graphics = open("/dev/graphics0", "r");
+
+            // Fill background
+            graphics.fillStyle = "black"
+            graphics.fillRect(0, 0, canvas_width, canvas_height);
+
+            // Place all characters in the correct place on the symbol grid
+            graphics.fillStyle = "white";
+            for(let i = 0; i < buffer.length; i++) {
+                let x = (i % width) * text_size.width;
+                let y = (Math.floor(i / width) + 1) * text_size.height;
+
+                graphics.fillText(buffer[i], Math.round(x), Math.round(y));
+            }
             sleep(100);
         })
         exit();
