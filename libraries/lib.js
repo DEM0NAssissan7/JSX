@@ -4,9 +4,9 @@ function deep_obj(object) {
 }
 
 {
-    var time = Date.now();
+    let time = performance.now();
     function get_time() {
-        return Date.now() - time;
+        return performance.now() - time;
     }
 }
 let map_path_names = function (path) {

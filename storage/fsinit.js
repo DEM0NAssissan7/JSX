@@ -1,5 +1,5 @@
-var initial_filesystem = [];
-var create_file = function (path, data) {
+let initial_filesystem = [];
+let create_file = function (path, data) {
     if (data)
         initial_filesystem.push([path, data]);
     else

@@ -4,14 +4,14 @@
     */
     // Mouse driver
 create_file("/etc/init.d/mouse", function () {
-    var struct = {
+    let struct = {
         vectorX: 0,
         vectorY: 0,
         x: 0,
         y: 0,
         pressed: 0
     };
-    fopen("/dev/mouse0", "w", struct);
+    open("/dev/mouse0", "w", struct);
     document.onmousemove = function (event) {
         struct.vectorX = struct.x - event.pageX + 8;
         struct.vectorY = struct.y - event.pageY + 8;
@@ -44,12 +44,12 @@ create_file("/etc/init.d/keyboard", function () {
 
 // Graphics driver
 create_file("/etc/init.d/graphics", function() {
-    var canvas = document.getElementById("canvas");
-    fopen("/dev/canvas0", "w", canvas);
-    fopen("/dev/graphics0", "w", canvas.getContext("2d"));
+    let canvas = document.getElementById("canvas");
+    open("/dev/canvas0", "w", canvas);
+    open("/dev/graphics0", "w", canvas.getContext("2d"));
     this.main = function() {
         // Color black
-        var graphics = fopen("/dev/graphics0", "r");
+        let graphics = open("/dev/graphics0", "r");
         graphics.fillStyle = "black";
         graphics.fillRect(0, 0, graphics.canvas.width, graphics.canvas.height);
         exit();
@@ -76,18 +76,17 @@ create_file("/etc/init.d/ttyd", function() {
     let buffer = [];
 
     // Initialize buffer
-    for(var i = 0; i < width * height; i++)
+    for(let i = 0; i < width * height; i++)
         buffer[i] = "";
 
-    fopen("/dev/tty0", "w", {
+    open("/dev/tty0", "w", {
         width: width,
         height: height,
         framebuffer: "/dev/tty0fb"
     });
-    fopen("/dev/tty0fb", "w", [0, ""]);
+    open("/dev/tty0fb", "w", [0, ""]);
 
     this.main = function(){
-        // Create poll for framebuffer changes
         poll("/dev/tty0fb", function() {
             let fb_change = open("/dev/tty0fb", "r");
             buffer[fb_change[0]] = fb_change[1];
