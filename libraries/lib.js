@@ -20,7 +20,6 @@ let map_path_names = function (path) {
                     string_list.push(file_string);
                 file_string = "";
                 continue;
-                break;
             case ".":
                 if (i === path.length - 1) continue;
                 switch (path[i + 1]) {
@@ -33,7 +32,6 @@ let map_path_names = function (path) {
                     case "/":
                         i++;
                         continue;
-                        break;
                 }
                 break;
         }
@@ -55,4 +53,23 @@ let get_filename = function(path) {
     }
     if(filename.length !== 0) return filename;
     return path;
+}
+let to_string = function(data) {
+    let type = typeof data;
+    if(type === "function")
+        return data.toString();
+    else return JSON.stringify(data);
+}
+let data_size = function(data) {
+    return (new TextEncoder().encode(to_string(data))).length
+}
+let clear_cookies = function() {
+    const cookies = document.cookie.split(";");
+
+    for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i];
+        const eqPos = cookie.indexOf("=");
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+        document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    }
 }
