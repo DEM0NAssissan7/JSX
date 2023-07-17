@@ -43,8 +43,6 @@ JSFS.prototype.stringify = function() {
         let type = typeof file.data;
         if(type === "function")
             stringified_files[i].data = file.data.toString();
-        if(type === "object")
-            stringified_files[i].data = JSON.stringify(file.data);
         console.log(type, file.path);
         stringified_files[i].type = type;
     }
@@ -62,8 +60,6 @@ let fs_parse = function(string) {
         let file = imported_fs.files[i];
         if(file.type === "function")
             file.data = (new Function("return " + file.data))();
-        if(file.type === "object")
-            file.data = JSON.parse(file.data);
         file.type = undefined;
     }
     fs.path = imported_fs.path;
