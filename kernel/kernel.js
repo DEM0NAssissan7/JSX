@@ -35,7 +35,7 @@ let user_eval = function (code) {
         this.exec = exec; // Create an object from the pass-in code
         this.last_execution = get_time();
         this.queued = false;
-        this.sleep_time = 0;
+        this.sleep_time = -1;
         this.pid = pids++;
         this.process = process;
         this.suspended = false;
@@ -54,6 +54,15 @@ let user_eval = function (code) {
         this.code = new code();
         this.threads.push(new Thread(this.code.main, this)); // Push the main thread to the stack
     }
+    Process.prototype.die = function() {
+        this.threads = [];
+        for(let i = 0; i < this.events.length; i++) // Remove all events
+            rmevent(this.events[i]);
+        this.dead = true;
+    }
+    let get_process = function(pid) {
+        return processes.find(function(p){return p.pid === pid});
+    }
 
     // Events
     let events = [];
@@ -67,7 +76,7 @@ let user_eval = function (code) {
     }
     let run_event = function (eventid, args) {
         let event = events[eventid];
-        if (!event) throw new Error("Event " + eventid + " does not exist.");
+        if (!event) return
         let old_process = c_process;
         let old_thread = c_thread;
         let old_user = c_user;
@@ -134,7 +143,6 @@ let user_eval = function (code) {
     let get_file = function (path, suppress_error) {
         if (path === "") throw new Error("Cannot have an empty path.");
         let path_names = get_pathnames(path);
-        // let path_names = map_path_names(expand_filepath(path));
         let index = 0;
         let filesystem = mountpoints[0];
         let file = filesystem.get_file(0);
@@ -232,6 +240,10 @@ let user_eval = function (code) {
     function stat(path) {
         return get_file(path).file;
     }
+    function statfs(device) {
+        let filesystem = get_file(device).filesystem;
+        filesystem.usage 
+    }
     function chmod(path, permissions) {
         get_file(path).file.permissions = permissions;
     }
@@ -239,9 +251,11 @@ let user_eval = function (code) {
         let event = new Event(handler);
         get_file(path).file.events.push(event.eventid);
         events.push(event);
+        c_process.events.push(event.eventid);
         return event.eventid;
     }
     function rmevent(eventid) {
+        events[eventid].process.events.splice(event.process.events.indexOf(eventid), 1); // Remove event from parent process
         events[eventid] = undefined;
     }
     function chdir(path) {
@@ -263,6 +277,7 @@ let user_eval = function (code) {
         let file = get_file(path).file;
         if (file.filetype !== "d") throw new Error("Mountpoint must be a directory");
         if (filesystem.mountid !== null) throw new Error("Filesystem is already mounted");
+        if (typeof filesystem.files[0].data !== "object") throw new Error("Filesystem is corrupted.");
         file.is_mountpoint = true;
         file.mountid = mountids;
         filesystem.path = expand_filepath(path);
@@ -458,6 +473,34 @@ let user_eval = function (code) {
         }
     }
 
+    // Kernel power driver
+    let cycle_rate = 0;
+    let power_manager = function () {
+        /* The job of this kernel driver is to only reexecute the kernel if another process is wanting the
+           scheduler to be executed, so that it does not run extra, useless cycles. This keeps system efficiency
+           Significantly higher and reduces CPU load.
+        */
+        if (!suspended) {
+            let min_exec_time = Infinity;
+            let time = get_time();
+            for (let i = 0; i < processes.length; i++) {
+                let process = processes[i];
+                for (let l = 0; l < process.threads.length; l++) {
+                    let thread = process.threads[l];
+                    if (thread.sleep_time > -1) {
+                        let exec_time = thread.last_execution + thread.sleep_time - time;
+                        if (exec_time < min_exec_time)
+                            min_exec_time = exec_time;
+                    }
+                }
+            }
+            if (min_exec_time !== Infinity)
+                cycle_rate = Math.max(min_exec_time, 0);
+            else
+                cycle_rate = 0;
+        }
+    }
+
     // Process systemcalls
     function exec(path, args) {
         // Creates a new process that runs the program at the specified path
@@ -469,11 +512,15 @@ let user_eval = function (code) {
             console.error(e);
         }
     }
+    function kill(pid) {
+        get_process(pid).dead = true;
+    }
     function thread(code) {
         c_process.threads.push(new Thread(code, c_process));
     }
+    const average_js_timeout_error = 1.7;
     function sleep(timeout) {
-        c_thread.sleep_time = timeout;
+        c_thread.sleep_time = timeout - average_js_timeout_error;
     }
     function exit() {
         c_thread.dead = true;
@@ -489,15 +536,17 @@ let user_eval = function (code) {
     }
 
     // Main loop
-    let main = function () {
+    let main = function (static) {
         scheduler();
-        if (panicked === false)
-            setTimeout(main, 0);
+        power_manager();
+        if (panicked === false && !static)
+            setTimeout(main, cycle_rate);
     }
     try {
         log("Starting main loop");
         main();
     } catch (e) {
+        console.error(e);
         panic("Failed to initialize.");
     }
 

@@ -4,22 +4,30 @@
     filesystem that stores data and is guaranteed to work with the JSX kernel.
 */
 
-let JSFS = function () {
+let JSFS = function (size) {
     this.path = "/";
     let file = new Inode("/", [], "d", 0, 0);
     file.is_mountpoint = true;
     this.files = [file];
     this.indexes = 1;
     this.mountid = null;
-    this.filesystem_type = "JSFS"
+    this.filesystem_type = "JSFS";
+    this.size = size;
+    this.used_data = 0;
 }
 JSFS.prototype.get_file = function(index) {
     return this.files[index];
 }
 JSFS.prototype.create_file = function(path, data, filetype, parent_directory) {
-    if(parent_directory.filesystem.mountid !== this.mountid) throw new Error("A fatal error occured in the JSFS driver: A file cannot be created in the directory of another filesystem.");
-    let index = this.indexes++;
+    if(parent_directory.filesystem.mountid !== this.mountid) throw new Error("JSFS driver (fatal): A file cannot be created in the directory of another filesystem.");
 
+    if(this.size) { // If there is a size quota, check file size and see if it can fit.
+        let data_size = used_data(data);
+        if(data_size + this.used_data > this.size)
+            throw new Error("Cannot create file: Not enough space");
+        this.used_data += data_size;
+    }
+    let index = this.indexes++;
     let relative_path = parent_directory.file.path + "/" + get_filename(path);
     if(parent_directory.file.path === "/") relative_path = "/" + get_filename(path);
     this.files.push(new Inode(relative_path, data, filetype, index, getuid()));
@@ -40,10 +48,9 @@ JSFS.prototype.stringify = function() {
     for(let i = 0; i < this.files.length; i++) {
         let file = this.files[i];
         stringified_files.push(deep_obj(file));
-        let type = typeof file.data;
+        let type = typeof file.data
         if(type === "function")
             stringified_files[i].data = file.data.toString();
-        console.log(type, file.path);
         stringified_files[i].type = type;
     }
     copy.files = stringified_files;
@@ -53,8 +60,8 @@ JSFS.prototype.stringify = function() {
 
     return JSON.stringify(copy);
 }
-let fs_parse = function(string) {
-    let fs = new JSFS();
+let fs_parse = function(string, filesystem) {
+    let fs = new filesystem();
     let imported_fs = JSON.parse(string);
     for(let i = 0; i < imported_fs.files.length; i++) {
         let file = imported_fs.files[i];

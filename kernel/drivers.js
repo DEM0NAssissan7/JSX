@@ -1,4 +1,4 @@
-    /* The goal of drivers are to 
+/* The goal of drivers are to 
         1. Map devices to files
         2. Deal with edge cases
     */
@@ -61,7 +61,7 @@ create_file("/etc/init.d/ttyd", function() {
     // Create a text framebuffer where each element influences a character on-screen
     let graphics = open("/dev/graphics0", "r");
     // let text_size = 16;
-    let height_ratio = 1.4;
+    let height_ratio = 2;
     graphics.font = "12px Monospace"
     let canvas_width = graphics.canvas.width;
     let canvas_height = graphics.canvas.height;
@@ -87,13 +87,22 @@ create_file("/etc/init.d/ttyd", function() {
     open("/dev/tty0fb", "w", [0, ""]);
 
     this.main = function(){
+        let graphics = open("/dev/graphics0", "r");
         poll("/dev/tty0fb", function(fb_change) {
-            buffer[fb_change[0]] = fb_change[1];
+            let i = fb_change[0];
+            let char = fb_change[1];
+            buffer[i] = char;
+            // Dynamic graphics drawing: a better, faster way to draw characters to the screen
+            let x = (i % width) * text_size.width;
+            let y = (Math.floor(i / width)) * text_size.height;
+            // Draw a background where the character will be placed
+            graphics.fillStyle = "black"
+            graphics.fillRect(x - 1, y + 2, text_size.width + 1, text_size.height + 1);
+            // Draw the character
+            graphics.fillStyle = "white";
+            graphics.fillText(buffer[i], Math.floor(x), Math.floor(y + text_size.height));
         });
         thread(function() {
-            // Text graphics update thread
-            let graphics = open("/dev/graphics0", "r");
-
             // Fill background
             graphics.fillStyle = "black"
             graphics.fillRect(0, 0, canvas_width, canvas_height);
@@ -107,6 +116,7 @@ create_file("/etc/init.d/ttyd", function() {
                 graphics.fillText(buffer[i], Math.round(x), Math.round(y));
             }
             sleep(100);
+            exit();
         })
         exit();
     }
@@ -114,8 +124,29 @@ create_file("/etc/init.d/ttyd", function() {
 
 // Cookie disk driver
 create_file("/etc/init.d/cookiedisk", function() {
+    let create_new_homefs = function() {
+        open("/var/log/cookiesave", "a", "Creating new cookie filesystem.\n");
+        let home_fs = new JSFS(4097); // Create a new FS with a size quota of 4097
+        document.cookie = "FS=" + home_fs.stringify() + ";";
+    }
     this.main = function() {
-        open("/dev/sda", "w", document.cookie);
+        var cookie = decodeURIComponent(document.cookie.trim());
+        cookie = cookie.substring(3);
+
+        console.log(cookie)
+        open("/dev/cookie", "w", document.cookie);
+        // See if there is an error in parsing the cookie filesystem
+        // Create /home filesystem if it did not previously exist.
+        
+        if(cookie.length === 0) create_new_homefs();
+        try {
+            open("/dev/sda", "w", fs_parse(cookie, JSFS));
+        } catch (e) {
+            console.error("Cookiedisk: Cookie failed to be converted to a filesystem device. /home will not be mounted.");
+            console.error(e);
+            clear_cookies();// Clear cookies
+            create_new_homefs();// Create a new filesystem
+        }
         exit();
     }
 });
