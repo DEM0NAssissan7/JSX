@@ -87,8 +87,7 @@ create_file("/etc/init.d/ttyd", function() {
     open("/dev/tty0fb", "w", [0, ""]);
 
     this.main = function(){
-        poll("/dev/tty0fb", function() {
-            let fb_change = open("/dev/tty0fb", "r");
+        poll("/dev/tty0fb", function(fb_change) {
             buffer[fb_change[0]] = fb_change[1];
         });
         thread(function() {
@@ -109,6 +108,14 @@ create_file("/etc/init.d/ttyd", function() {
             }
             sleep(100);
         })
+        exit();
+    }
+});
+
+// Cookie disk driver
+create_file("/etc/init.d/cookiedisk", function() {
+    this.main = function() {
+        open("/dev/sda", "w", document.cookie);
         exit();
     }
 });

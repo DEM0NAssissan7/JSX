@@ -32,3 +32,35 @@ JSFS.prototype.mkfs = function(device) {
     if (stat(device).filetype !== "-") throw new Error("JSFS can only be created using normal devices");
     open(path, "w", new JSFS());
 }
+
+// Stringify and parse: Important for persistant filesystems
+JSFS.prototype.stringify = function() {
+    let copy = deep_obj(this);
+    let stringified_files = [];
+    for(let i = 0; i < this.files.length; i++) {
+        let file = this.files[i];
+        stringified_files.push(deep_obj(file));
+        let type = typeof file.data;
+        if(type === "function")
+            stringified_files[i].data = "var a = " + file.data.toString();
+        if(type === "object")
+            stringified_files[i].data = JSON.stringify(file.data);
+        console.log(type, file.path);
+        stringified_files[i].type = type;
+    }
+    copy.files = stringified_files;
+    copy.mountid = null;
+    copy.is_mounted = false;
+
+    return JSON.stringify(copy);
+}
+let jsfs_parse = function(string) {
+    let imported_fs = JSON.parse(string);
+    for(let i = 0; i < imported_fs.files.length; i++) {
+        let file = imported_fs.files[i];
+        if(file.type === "function")
+            file.data = Function(file.data);
+        file.type = undefined;
+    }
+    return imported_fs;
+}

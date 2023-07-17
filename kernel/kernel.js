@@ -65,7 +65,7 @@ let user_eval = function (code) {
         this.handler = handler;
         this.eventid = eventids++;
     }
-    let run_event = function (eventid) {
+    let run_event = function (eventid, args) {
         let event = events[eventid];
         if (!event) throw new Error("Event " + eventid + " does not exist.");
         let old_process = c_process;
@@ -75,7 +75,7 @@ let user_eval = function (code) {
             c_process = event.process;
             c_thread = event.thread;
             c_user = event.user;
-            event.handler();
+            event.handler(args);
         } catch (e) {
             console.error("Event " + eventid + " encountered an error (PID: " + c_process.pid + " [" + c_thread.pid + "]): " + e);
             console.error(e);
@@ -119,9 +119,22 @@ let user_eval = function (code) {
     
         return string;
     }
+    let get_pathnames = function(path) {
+        // Efficiently get path names
+        let prefix = c_process.working_directory;
+        if (path[0] === "/" || !prefix)
+            prefix = [];
+        
+        let path_names = map_path_names(prefix);
+        let input_path_strings = map_path_names(path);
+        for(let i = 0; i < input_path_strings.length; i++)
+            path_names.push(input_path_strings[i]);
+        return path_names;
+    }
     let get_file = function (path, suppress_error) {
         if (path === "") throw new Error("Cannot have an empty path.");
-        let path_names = map_path_names(expand_filepath(path));
+        let path_names = get_pathnames(path);
+        // let path_names = map_path_names(expand_filepath(path));
         let index = 0;
         let filesystem = mountpoints[0];
         let file = filesystem.get_file(0);
@@ -197,7 +210,7 @@ let user_eval = function (code) {
                 if (file.filetype === "d") throw new Error("Specified file is a directory.");
                 file.data = data;
                 for (let i = 0; i < file.events.length; i++)
-                    run_event(file.events[i]);
+                    run_event(file.events[i], data);
                 return data;
             case "a":
                 if (!check_file_exists(path))
@@ -206,7 +219,7 @@ let user_eval = function (code) {
                 if (file.filetype === "d") throw new Error("Specified file is a directory.");
                 file.data += data;
                 for (let i = 0; i < file.events.length; i++)
-                    run_event(file.events[i]);
+                    run_event(file.events[i], file.data);
                 return file.data;
         }
     }
@@ -266,7 +279,7 @@ let user_eval = function (code) {
         let referenced_file = descriptor.referenced_file;
         let filesystem = descriptor.filesystem;
         if (referenced_file.is_mountpoint !== true && !file.data.mountid) throw new Error("A mountpoint or mounted device must be specified");
-        if (filesystem.path === "/") throw new Error("Cannot unmount root.");
+        // if (filesystem.path === "/") throw new Error("Cannot unmount root.");
         if (file.data.mountid) { // If the specified path is a mounted device
             filesystem = file.data;
             file = get_file(filesystem.path).file;
