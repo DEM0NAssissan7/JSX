@@ -42,7 +42,7 @@ JSFS.prototype.stringify = function() {
         stringified_files.push(deep_obj(file));
         let type = typeof file.data;
         if(type === "function")
-            stringified_files[i].data = "var a = " + file.data.toString();
+            stringified_files[i].data = file.data.toString();
         if(type === "object")
             stringified_files[i].data = JSON.stringify(file.data);
         console.log(type, file.path);
@@ -51,16 +51,25 @@ JSFS.prototype.stringify = function() {
     copy.files = stringified_files;
     copy.mountid = null;
     copy.is_mounted = false;
+    copy.path = "/";
 
     return JSON.stringify(copy);
 }
-let jsfs_parse = function(string) {
+let fs_parse = function(string) {
+    let fs = new JSFS();
     let imported_fs = JSON.parse(string);
     for(let i = 0; i < imported_fs.files.length; i++) {
         let file = imported_fs.files[i];
         if(file.type === "function")
-            file.data = Function(file.data);
+            file.data = (new Function("return " + file.data))();
+        if(file.type === "object")
+            file.data = JSON.parse(file.data);
         file.type = undefined;
     }
-    return imported_fs;
+    fs.path = imported_fs.path;
+    fs.files = imported_fs.files;
+    fs.indexes = imported_fs.indexes;
+    fs.mountid = imported_fs.mountid;
+    fs.filesystem_type = imported_fs.filesystem_type;
+    return fs;
 }

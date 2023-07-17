@@ -1,6 +1,6 @@
 function deep_obj(object) {
-    // return JSON.parse(JSON.stringify(object));
-    return object;
+    return JSON.parse(JSON.stringify(object));
+    // return object;
 }
 
 {
