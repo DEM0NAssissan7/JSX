@@ -126,10 +126,13 @@ create_file("/etc/init.d/ttyd", function() {
 create_file("/etc/init.d/cookiedisk", function() {
     let create_new_homefs = function() {
         open("/var/log/cookiesave", "a", "Creating new cookie filesystem.\n");
-        let home_fs = new JSFS(4097); // Create a new FS with a size quota of 4097
+        let home_fs = new JSFS(3072); // Create a new FS with a size quota of 3KB
         document.cookie = "FS=" + home_fs.stringify() + ";";
+        console.log(document.cookie)
+        if(document.cookie.length === 0) throw new Error("Cookie did not write properly.");
     }
     this.main = function() {
+        if(document.cookie.length === 0) create_new_homefs();
         var cookie = decodeURIComponent(document.cookie.trim());
         cookie = cookie.substring(3);
 
@@ -138,15 +141,14 @@ create_file("/etc/init.d/cookiedisk", function() {
         // See if there is an error in parsing the cookie filesystem
         // Create /home filesystem if it did not previously exist.
         
-        if(cookie.length === 0) create_new_homefs();
         try {
             open("/dev/sda", "w", fs_parse(cookie, JSFS));
+            exit();
         } catch (e) {
             console.error("Cookiedisk: Cookie failed to be converted to a filesystem device. /home will not be mounted.");
             console.error(e);
-            clear_cookies();// Clear cookies
+            document.cookie = "";
             create_new_homefs();// Create a new filesystem
         }
-        exit();
     }
 });

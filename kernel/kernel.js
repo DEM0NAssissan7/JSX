@@ -205,7 +205,7 @@ let user_eval = function (code) {
         } else throw new Error("Specified directory is not empty.");
     }
     function open(path, mode, data) {
-        let file;
+        let file, file_info;
         switch (mode) {
             case "r":
                 file = get_file(path).file;
@@ -214,18 +214,20 @@ let user_eval = function (code) {
             case "w":
                 if (!check_file_exists(path))
                     create_file(path, "", "-"); // Create file if it does not exist
-                file = get_file(path).file;
+                file_info = get_file(path);
+                file = file_info.file;
                 if (file.filetype === "d") throw new Error("Specified file is a directory.");
-                file.data = data;
+                file_info.filesystem.edit_file(file.index, data, "w")
                 for (let i = 0; i < file.events.length; i++)
                     run_event(file.events[i], data);
                 return data;
             case "a":
                 if (!check_file_exists(path))
                     create_file(path, "", "-"); // Create file if it does not exist
-                file = get_file(path).file;
+                file_info = get_file(path);
+                file = file_info.file;
                 if (file.filetype === "d") throw new Error("Specified file is a directory.");
-                file.data += data;
+                file_info.filesystem.edit_file(file.index, data, "a")
                 for (let i = 0; i < file.events.length; i++)
                     run_event(file.events[i], file.data);
                 return file.data;
