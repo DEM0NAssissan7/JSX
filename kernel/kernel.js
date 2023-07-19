@@ -22,13 +22,19 @@ let user_eval = function (code) {
         return c_user;
     }
     let is_root = function() {
-        if(c_user === 0) return true;
+        if(c_user === 0)
+            return true;
+        return false;
+    }
+    let is_permitted = function(user) {
+        if(c_user === user || c_user === 0)
+            return true;
         return false;
     }
 
     // Processes
     let processes = [];
-    let c_process = {};
+    let c_process = { file_descriptors: [] };
     let c_thread = {};
     let pids = 0;
     let Thread = function (exec, process) {
@@ -47,6 +53,7 @@ let user_eval = function (code) {
         this.pid = pids;
         this.threads = [];
         this.user = 0;
+        this.file_descriptors = [];
         this.events = [];
         this.suspended = false;
         this.dead = false;
@@ -193,6 +200,23 @@ let user_eval = function (code) {
         if (check_file_exists(path)) throw new Error("'" + expand_filepath(path) + "' already exists.");
         get_file(path, true).filesystem.create_file(path, data, filetype, get_file(path, true));
     }
+    // File descriptors: a number reference to an opened file.
+    let file_descriptors = [];
+    let fd_indexes = 0;
+    let file_descriptor = function(file, file_index, mode, permissions, filesystem, user) {
+        this.file = file;
+        this.file_index = file_index;
+        this.permissions = permissions;
+        this.mode = mode;
+        this.filesystem = filesystem;
+        this.user = user;
+    }
+    let get_file_descriptor = function(fd) {
+        let descriptor = file_descriptors[fd];
+        if(!descriptor) throw new Error("File descriptor does not exist.");
+        if(!is_permitted(descriptor.user)) throw new Error("Not permitted to get file descriptor");
+        return descriptor;
+    }
     // System calls
     function mkdir(path) {
         create_file(path, [], "d");
@@ -204,34 +228,38 @@ let user_eval = function (code) {
             file.filesystem.remove_file(file.index);
         } else throw new Error("Specified directory is not empty.");
     }
-    function open(path, mode, data) {
-        let file, file_info;
-        switch (mode) {
-            case "r":
-                file = get_file(path).file;
-                if (file.filetype === "d") throw new Error("Specified file is a directory.");
-                return file.data;
-            case "w":
-                if (!check_file_exists(path))
-                    create_file(path, "", "-"); // Create file if it does not exist
-                file_info = get_file(path);
-                file = file_info.file;
-                if (file.filetype === "d") throw new Error("Specified file is a directory.");
-                file_info.filesystem.edit_file(file.index, data, "w")
-                for (let i = 0; i < file.events.length; i++)
-                    run_event(file.events[i], data);
-                return data;
-            case "a":
-                if (!check_file_exists(path))
-                    create_file(path, "", "-"); // Create file if it does not exist
-                file_info = get_file(path);
-                file = file_info.file;
-                if (file.filetype === "d") throw new Error("Specified file is a directory.");
-                file_info.filesystem.edit_file(file.index, data, "a")
-                for (let i = 0; i < file.events.length; i++)
-                    run_event(file.events[i], file.data);
-                return file.data;
+    function open(path, mode) {
+        let file_info;
+        try {
+            file_info = get_file(path);
+        } catch (e) {
+            if (mode === "w" || mode === "a")
+                create_file(path, "", "-"); // Create file if it does not exist
+            else throw new Error("Cannot create '" + expand_filepath(path) + "': not opened in writing mode");
+            file_info = get_file(path);
         }
+
+        let file = file_info.file;
+        if (file.filetype === "d") throw new Error("Specified file is a directory.");
+        let fd = new file_descriptor(file_info.file, file_info.index, mode, file_info.file.permissions, file_info.filesystem, c_user);
+        file_descriptors[fd_indexes] = fd;
+        c_process.file_descriptors[fd_indexes] = fd;
+        return fd_indexes++;
+    }
+    function read(fd) {
+        return get_file_descriptor(fd).file.data;
+    }
+    function write(fd, data) {
+        let descriptor = get_file_descriptor(fd);
+        let file = descriptor.file;
+        descriptor.filesystem.edit_file(descriptor.file_index, data, descriptor.mode);
+        for (let i = 0; i < file.events.length; i++)
+            run_event(file.events[i], file.data);
+        return descriptor.file.data;
+    }
+    function close(fd) {
+        file_descriptors[fd] = undefined;
+        c_process.file_descriptors[fd] = undefined;
     }
     function unlink(path) {
         let file = get_file(path);
@@ -249,9 +277,9 @@ let user_eval = function (code) {
     function chmod(path, permissions) {
         get_file(path).file.permissions = permissions;
     }
-    function poll(path, handler) {
+    function poll(fd, handler) {
         let event = new Event(handler);
-        get_file(path).file.events.push(event.eventid);
+        get_file_descriptor(fd).file.events.push(event.eventid);
         events.push(event);
         c_process.events.push(event.eventid);
         return event.eventid;
@@ -279,7 +307,7 @@ let user_eval = function (code) {
         let file = get_file(path).file;
         if (file.filetype !== "d") throw new Error("Mountpoint must be a directory");
         if (filesystem.mountid !== null) throw new Error("Filesystem is already mounted");
-        if (typeof filesystem.files[0].data !== "object") throw new Error("Filesystem is corrupted.");
+        if (typeof filesystem.get_file(0).data !== "object") throw new Error("Filesystem is corrupted.");
         file.is_mountpoint = true;
         file.mountid = mountids;
         filesystem.path = expand_filepath(path);
@@ -288,7 +316,9 @@ let user_eval = function (code) {
     }
     function mount(device, path) {
         // if(file.file.filetype !== "b") throw new Error("Specified file is not a block device.");
-        fs_mount(get_file(device).file.data, path);
+        let filesystem = get_file(device).file.data;
+        if (filesystem.mountid === undefined) throw new Error("The device " + expand_filepath(device) + " is not a filesystem.");
+        fs_mount(filesystem, path);
     }
     function umount(path) {
         let descriptor = get_file(path);
@@ -310,7 +340,7 @@ let user_eval = function (code) {
 
     // Logging
     let log = function (message) {
-        open("/var/log/kernel", "a", "[" + get_time() + "]: " + message + '\n');
+        write(log_fd, "[" + get_time() + "]: " + message + '\n');
     }
 
     /* Kernel filesystems
@@ -336,11 +366,16 @@ let user_eval = function (code) {
     let devfs = new JSFS();
     mkdir("/dev");
     fs_mount(devfs, "/dev");
-    open("/dev/devfs", "w", devfs);
+    let fd;
+    fd = open("/dev/devfs", "w");
+    write(fd, devfs);
+    close(fd);
 
     let kernelfs_mounts = [];
     let create_kernelfs_mount = function (path) {
-        open("/dev/kernelfs" + kernelfs_mounts.length, "w", new JSFS()); // Create file reference for filesystem
+        let fd = open("/dev/kernelfs" + kernelfs_mounts.length, "w");
+        write(fd, new JSFS()); // Create file reference for filesystem
+        close(fd);
         mkdir(path);
         mount("/dev/kernelfs" + kernelfs_mounts.length, path);
         kernelfs_mounts.push([path, "/dev/kernelfs" + kernelfs_mounts.length]);
@@ -365,14 +400,16 @@ let user_eval = function (code) {
     // Procfs
     {
         create_kernelfs_mount("/proc");
-        open("/proc/uptime", "w", {});
+        fd = open("/proc/uptime", "w");
+        write(fd, {});
+        close(fd);
     }
 
     create_kernelfs_mount("/sys");
     create_kernelfs_mount("/tmp");
     create_kernelfs_mount("/var");
     mkdir("/var/log");
-    open("/var/log/kernel", "w", "");
+    let log_fd = open("/var/log/kernel", "w");
 
     log("Kernelfs created");
 
@@ -390,7 +427,9 @@ let user_eval = function (code) {
         log("Loading disk init driver");
         // This driver imports the preset files set at the beginning of the program and does all the appropriate disk things.
         let disk = new JSFS();
-        open("/dev/vda", "w", disk);
+        fd = open("/dev/vda", "w");
+        write(fd, disk);
+        close(fd);
 
         // First, the driver creates a temporary mountpoint for the disk and mounts it
         mkdir("/mnt");
@@ -402,8 +441,11 @@ let user_eval = function (code) {
             let file = initial_filesystem[i];
             if (file.length < 2)
                 mkdir("/mnt" + expand_filepath(file[0]));
-            else
-                open("/mnt" + expand_filepath(file[0]), "w", file[1]);
+            else {
+                fd = open("/mnt" + expand_filepath(file[0]), "w");
+                write(fd, file[1])
+                close(fd);
+            }
         }
         log("Files copied.");
 
@@ -417,7 +459,7 @@ let user_eval = function (code) {
 
     // Root eval
     function root_eval(code) {
-        if(is_root())
+        if(is_permitted(0))
             eval(code);
     }
 

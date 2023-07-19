@@ -3,8 +3,9 @@ create_file("/bin/sh", function () {
     // Text sequencing
     let sequence_index = 0;
     let text_buffer = "";
+    let tty_fd, framebuff_fd;
     let newline = function() {
-        let width = open("/dev/tty0", "r").width;
+        let width = read(tty_fd).width;
         let change = width - (sequence_index % width)
         if(change === 0)
             sequence_index += width;
@@ -12,16 +13,16 @@ create_file("/bin/sh", function () {
             sequence_index += change;
     }
     let clear_screen = function() {
-        let tty = open("/dev/tty0", "r");
+        let tty = read(tty_fd);
         sequence_index = 0;
         for(let i = 0; i < tty.width * tty.height; i++) {
-            open("/dev/tty0fb", "w", [i, ""]);
+            write(framebuff_fd, [i, ""])
         }
         text_buffer = "";
     }
     let remove_text = function(amount) {
         for(let i = 0; i < amount; i++) {
-            open("/dev/tty0fb", "w", [sequence_index, ""]);
+            write(framebuff_fd, [sequence_index, ""]);
             sequence_index--;
         }
     }
@@ -32,14 +33,18 @@ create_file("/bin/sh", function () {
                 newline();
                 continue;
             }
-            open("/dev/tty0fb", "w", [sequence_index, text[i]]);
+            write(framebuff_fd, [sequence_index, text[i]]);
             sequence_index++;
         }
     }
-    add_text("Hello world\nThis is a test.\n");
     this.main = function() {
+        tty_fd = open("/dev/tty0", "r");
+        framebuff_fd = open("/dev/tty0fb", "w");
+        add_text("Hello world\nThis is a test.\n");
+
         // Input handler
-        poll("/dev/keyboard0", function(key) {
+        let keyboard_fd = open("/dev/keyboard0", "r");
+        poll(keyboard_fd, function(key) {
             let add_cursor = true;
             let rm_text = true;
             (function() {
@@ -55,7 +60,7 @@ create_file("/bin/sh", function () {
                     case "Alt":
                         return;
                     case "Backspace":
-                        let width = open("/dev/tty0", "r").width;
+                        let width = read(tty_fd).width;
                         if(sequence_index % width === 1) remove_text(width + 1);
                         else remove_text(2);
                         return;
@@ -72,7 +77,8 @@ create_file("/bin/sh", function () {
         });
         let time = get_time();
         for(let i = 0; i < 1000; i++) {
-            open("/dev/keyboard0", "r");
+            let fd = open("/dev/keyboard0", "r");
+            read(fd);
         }
         console.log(get_time() - time);
         exit();

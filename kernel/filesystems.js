@@ -56,14 +56,17 @@ JSFS.prototype.edit_file = function(index, data, mode) {
         }
         file.data = data;
     }
+    if(mode === "r") throw new Error("Cannot edit file opened for reading");
 }
 JSFS.prototype.remove_file = function(index) {
     this.files[index] = undefined;
 }
 JSFS.prototype.mkfs = function(device) {
     if (stat(device).filetype !== "-") throw new Error("JSFS can only be created using normal devices");
-    open(device, "w", "");
-    open(device, "w", new JSFS());
+    let fd = open(device, "w");
+    write(fd, "");
+    write(fd, new JSFS());
+    close(fd);
 }
 
 // Stringify and parse: Important for persistant filesystems

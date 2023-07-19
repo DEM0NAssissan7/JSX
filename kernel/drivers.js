@@ -11,7 +11,9 @@ create_file("/etc/init.d/mouse", function () {
         y: 0,
         pressed: 0
     };
-    open("/dev/mouse0", "w", struct);
+    let fd = open("/dev/mouse0", "w");
+    write(fd, struct);
+    close(fd);
     document.onmousemove = function (event) {
         struct.vectorX = struct.x - event.pageX + 8;
         struct.vectorY = struct.y - event.pageY + 8;
@@ -33,9 +35,10 @@ create_file("/etc/init.d/mouse", function () {
 // Keyboard driver
 create_file("/etc/init.d/keyboard", function () {
     let key = "";
-    open("/dev/keyboard0", "w", key);
+    let fd = open("/dev/keyboard0", "w");
+    write(fd, key);
     document.onkeydown = function(event) {
-        open("/dev/keyboard0", "w", event.key);
+        write(fd, event.key);
     };
     this.main = function () {
         exit();
@@ -45,11 +48,15 @@ create_file("/etc/init.d/keyboard", function () {
 // Graphics driver
 create_file("/etc/init.d/graphics", function() {
     let canvas = document.getElementById("canvas");
-    open("/dev/canvas0", "w", canvas);
-    open("/dev/graphics0", "w", canvas.getContext("2d"));
+    let fd;
+    fd = open("/dev/canvas0", "w");
+    write(fd, canvas);
+    close(fd);
+    fd = open("/dev/graphics0", "w");
+    write(fd, canvas.getContext("2d"));
     this.main = function() {
         // Color black
-        let graphics = open("/dev/graphics0", "r");
+        let graphics = read(fd);
         graphics.fillStyle = "black";
         graphics.fillRect(0, 0, graphics.canvas.width, graphics.canvas.height);
         exit();
@@ -59,7 +66,9 @@ create_file("/etc/init.d/graphics", function() {
 // Virtual console
 create_file("/etc/init.d/ttyd", function() {
     // Create a text framebuffer where each element influences a character on-screen
-    let graphics = open("/dev/graphics0", "r");
+    let fd = open("/dev/graphics0", "r");
+    let graphics = read(fd);
+    close(fd);
     // let text_size = 16;
     let height_ratio = 2;
     graphics.font = "12px Monospace"
@@ -79,16 +88,21 @@ create_file("/etc/init.d/ttyd", function() {
     for(let i = 0; i < width * height; i++)
         buffer[i] = "";
 
-    open("/dev/tty0", "w", {
+    fd = open("/dev/tty0", "w");
+    write(fd,  {
         width: width,
         height: height,
         framebuffer: "/dev/tty0fb"
     });
-    open("/dev/tty0fb", "w", [0, ""]);
+    close(fd);
+    fd = open("/dev/tty0fb", "w");
+    write(fd, [0, ""]);
+    close(fd);
 
     this.main = function(){
-        let graphics = open("/dev/graphics0", "r");
-        poll("/dev/tty0fb", function(fb_change) {
+        let graphics = read(open("/dev/graphics0", "r"));
+        let fd = open("/dev/tty0fb", "r");
+        poll(fd, function(fb_change) {
             let i = fb_change[0];
             let char = fb_change[1];
             buffer[i] = char;
@@ -122,11 +136,12 @@ create_file("/etc/init.d/ttyd", function() {
     }
 });
 
+// Standard input
+
 // Cookie disk driver
 create_file("/etc/init.d/cookiedisk", function() {
     let create_new_homefs = function() {
-        open("/var/log/cookiesave", "a", "Creating new cookie filesystem.\n");
-        let home_fs = new JSFS(3072); // Create a new FS with a size quota of 3KB
+        let home_fs = new JSFS(3072); // Create a new FS with a size quota of 3KB (due to cookie limitations)
         document.cookie = "FS=" + home_fs.stringify() + ";";
         console.log(document.cookie)
         if(document.cookie.length === 0) throw new Error("Cookie did not write properly.");
@@ -137,12 +152,14 @@ create_file("/etc/init.d/cookiedisk", function() {
         cookie = cookie.substring(3);
 
         console.log(cookie)
-        open("/dev/cookie", "w", document.cookie);
+        let fd = open("/dev/cookie", "w");
+        write(fd, document.cookie);
         // See if there is an error in parsing the cookie filesystem
         // Create /home filesystem if it did not previously exist.
         
         try {
-            open("/dev/sda", "w", fs_parse(cookie, JSFS));
+            fd = open("/dev/sda", "w");
+            write(fd, fs_parse(cookie, JSFS));
             exit();
         } catch (e) {
             console.error("Cookiedisk: Cookie failed to be converted to a filesystem device. /home will not be mounted.");
