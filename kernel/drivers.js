@@ -1,8 +1,19 @@
 /* The goal of drivers are to 
         1. Map devices to files
         2. Deal with edge cases
+        3. Provide application interfaces with devices, virtual or real
     */
-    // Mouse driver
+
+// Disk driver
+create_file("/etc/init.d/disk", function() {
+    this.main = function() {
+        let fd = open("/dev/vda", "w");
+        write(fd, jsx_system);
+        close(fd);
+        exit();
+    }
+});
+// Mouse driver
 create_file("/etc/init.d/mouse", function () {
     let struct = {
         vectorX: 0,
@@ -151,15 +162,16 @@ create_file("/etc/init.d/cookiedisk", function() {
         var cookie = decodeURIComponent(document.cookie.trim());
         cookie = cookie.substring(3);
 
-        console.log(cookie)
         let fd = open("/dev/cookie", "w");
         write(fd, document.cookie);
+        close(fd);
         // See if there is an error in parsing the cookie filesystem
         // Create /home filesystem if it did not previously exist.
         
         try {
             fd = open("/dev/sda", "w");
             write(fd, fs_parse(cookie, JSFS));
+            close(fd);
             exit();
         } catch (e) {
             console.error("Cookiedisk: Cookie failed to be converted to a filesystem device. /home will not be mounted.");

@@ -18,9 +18,29 @@ let JSFS = function (size) {
 JSFS.prototype.get_file = function(index) {
     return this.files[index];
 }
-JSFS.prototype.create_file = function(path, data, filetype, parent_directory) {
-    if(parent_directory.filesystem.mountid !== this.mountid) throw new Error("JSFS driver (fatal): A file cannot be created in the directory of another filesystem.");
-
+JSFS.prototype.get_index_by_path = function(path) {
+    // Please note that this function ONLY works for files stored on the filesystem itself.
+    // This function does not have the ability to access files outside of the filesystem.
+    // This also only returns a single index for a file on the filesystem. Nothing more.
+    // Also, the path must reference root. There are no relative paths with this function.
+    // It will also throw no errors, only the last valid index.
+    let path_names = map_path_names(path);
+    let index = 0;
+    let file = this.files[0];
+    for (let i = 0; i < path_names.length; i++) {
+        for (let j = 0; j < file.data.length; j++) {
+            let child_file = this.files[file.data[j]];
+            if (!child_file) break;
+            if (child_file.filename === path_names[i]) {
+                index = file.data[j]
+                file = child_file;
+                break;
+            }
+        }
+    }
+    return index;
+}
+JSFS.prototype.create_file = function(path, data, filetype, parent_file) {
     let file_size;
     if(this.size) { // If there is a size quota, check file size and see if it can fit.
         file_size = data_size(data);
@@ -29,10 +49,10 @@ JSFS.prototype.create_file = function(path, data, filetype, parent_directory) {
         this.used_data += file_size;
     }
     let index = this.indexes++;
-    let relative_path = parent_directory.file.path + "/" + get_filename(path);
-    if(parent_directory.file.path === "/") relative_path = "/" + get_filename(path);
+    let relative_path = parent_file.path + "/" + get_filename(path);
+    if(parent_file.path === "/") relative_path = "/" + get_filename(path);
     this.files.push(new Inode(relative_path, data, filetype, index, getuid(), file_size));
-    parent_directory.file.data.push(index);
+    parent_file.data.push(index);
 }
 JSFS.prototype.edit_file = function(index, data, mode) {
     let file = this.get_file(index);

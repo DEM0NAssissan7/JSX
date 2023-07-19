@@ -3,6 +3,9 @@ let user_eval = function (code) {
     eval(code);
 }
 {
+    // Set the root filesystem
+    let root = jsx_system;
+
     // Uname
     let utsname = {
         system: "JSX",
@@ -198,7 +201,10 @@ let user_eval = function (code) {
     }
     let create_file = function (path, data, filetype) {
         if (check_file_exists(path)) throw new Error("'" + expand_filepath(path) + "' already exists.");
-        get_file(path, true).filesystem.create_file(path, data, filetype, get_file(path, true));
+        let file = get_file(path, true);
+        let parent = get_file(path, true);
+        if(parent.filesystem.mountid !== file.filesystem.mountid) throw new Error("Fatal filesystem failure: " + expand_filepath(path) + " cannot be created in the directory of another filesystem.");
+        file.filesystem.create_file(path, data, filetype, parent.file);
     }
     // File descriptors: a number reference to an opened file.
     let file_descriptors = [];
@@ -258,6 +264,7 @@ let user_eval = function (code) {
         return descriptor.file.data;
     }
     function close(fd) {
+        if(!file_descriptors[fd]) throw new Error("File descriptor does not exist.");
         file_descriptors[fd] = undefined;
         c_process.file_descriptors[fd] = undefined;
     }
@@ -413,49 +420,12 @@ let user_eval = function (code) {
 
     log("Kernelfs created");
 
-    // Set root
-    let set_root = function (device) {
-        let filesystem = get_file(device).file.data;
-        filesystem.mountid = 0;
-        unmount_kernelfs_mounts();
-        mountpoints[0] = filesystem;
-        remount_kernelfs_mounts();
-    }
-
-    // Disk initialization driver
-    {
-        log("Loading disk init driver");
-        // This driver imports the preset files set at the beginning of the program and does all the appropriate disk things.
-        let disk = new JSFS();
-        fd = open("/dev/vda", "w");
-        write(fd, disk);
-        close(fd);
-
-        // First, the driver creates a temporary mountpoint for the disk and mounts it
-        mkdir("/mnt");
-        mount("/dev/vda", "/mnt");
-
-        // Second, the driver copies all the files specified in initial_filesystem
-        log("Copying files from initial_filesystem");
-        for (let i = 0; i < initial_filesystem.length; i++) {
-            let file = initial_filesystem[i];
-            if (file.length < 2)
-                mkdir("/mnt" + expand_filepath(file[0]));
-            else {
-                fd = open("/mnt" + expand_filepath(file[0]), "w");
-                write(fd, file[1])
-                close(fd);
-            }
-        }
-        log("Files copied.");
-
-        // Third, unmount kernelfs and unmount the filesystem from its temporary location. Also, delete /mnt.
-        umount("/mnt");
-        rmdir("/mnt");
-    }
-
-    // Set root filesystem
-    set_root("/dev/vda");
+    // Set root filesystem to the 'root' filesystem variable. It is defined at the beginning of the file.
+    if(!root) panic("Critical boot failure: No root filesystem was defined.")
+    root.mountid = 0;
+    unmount_kernelfs_mounts();
+    mountpoints[0] = root;
+    remount_kernelfs_mounts();
 
     // Root eval
     function root_eval(code) {
@@ -512,7 +482,7 @@ let user_eval = function (code) {
                 threads.splice(0, 1); // Clear the thread from the execution stack
             }
             c_thread = {};
-            c_process = {};
+            c_process = { file_descriptors: [] };
             c_user = 0;
         }
     }
