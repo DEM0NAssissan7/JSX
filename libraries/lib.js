@@ -73,3 +73,35 @@ let clear_cookies = function() {
         document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT";
     }
 }
+
+// Encoding and decoding
+let encode = function(uncoded_string, code) {
+    let output_string = "";
+    for(let i = 0; i < uncoded_string.length; i++) {
+        let has_encoding = false;
+        for(let j = 0; j < code.length; j++) {
+            if(uncoded_string[i] === code[j][0]) {
+                output_string += code[j][1];
+                has_encoding = true;
+                break;
+            }
+        }
+        if(!has_encoding) output_string += uncoded_string[i];
+    }
+    return output_string;
+}
+let decode = function(coded_string, code) {
+    let output_string = "";
+    for(let i = 0; i < coded_string.length; i++) {
+        let has_encoding = false;
+        for(let j = 0; j < code.length; j++) {
+            if(coded_string[i] === code[j][1]) {
+                output_string += code[j][0];
+                has_encoding = true;
+                break;
+            }
+        }
+        if(!has_encoding) output_string += coded_string[i];
+    }
+    return output_string;
+}

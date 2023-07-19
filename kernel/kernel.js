@@ -6,7 +6,7 @@ let user_eval = function (code) {
     // Uname
     let utsname = {
         system: "JSX",
-        release: "0.01",
+        release: "0.02",
     }
     function uname() {
         return deep_obj(utsname);

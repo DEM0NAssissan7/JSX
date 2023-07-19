@@ -67,8 +67,8 @@ create_file("/bin/sh", function () {
                 if(rm_text === true) remove_text(1);
                 add_text(key);
             })();
-            if(add_cursor === true) text_buffer[text_buffer.lenght - 1] = "█";
-                add_text("█");
+            if(add_cursor === true) text_buffer[text_buffer.length] = "█";
+            add_text("█");
         });
         let time = get_time();
         for(let i = 0; i < 1000; i++) {
