@@ -102,9 +102,9 @@ create_file("/etc/init.d/ttyd", function() {
     this.main = function(){
         let graphics = read(open("/dev/graphics0", "r"));
         let fd = open("/dev/tty0fb", "r");
-        poll(fd, function(fb_change) {
-            let i = fb_change[0];
-            let char = fb_change[1];
+        poll(fd, function() {
+            let i = read(fd)[0];
+            let char = read(fd)[1];
             buffer[i] = char;
             // Dynamic graphics drawing: a better, faster way to draw characters to the screen
             let x = (i % width) * text_size.width;

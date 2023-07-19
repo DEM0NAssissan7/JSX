@@ -44,7 +44,8 @@ create_file("/bin/sh", function () {
 
         // Input handler
         let keyboard_fd = open("/dev/keyboard0", "r");
-        poll(keyboard_fd, function(key) {
+        poll(keyboard_fd, function() {
+            let key = read(keyboard_fd);
             let add_cursor = true;
             let rm_text = true;
             (function() {
@@ -76,9 +77,10 @@ create_file("/bin/sh", function () {
             add_text("█");
         });
         let time = get_time();
-        for(let i = 0; i < 1000; i++) {
+        for(let i = 0; i < 10000; i++) {
             let fd = open("/dev/keyboard0", "r");
             read(fd);
+            close(fd);
         }
         console.log(get_time() - time);
         exit();

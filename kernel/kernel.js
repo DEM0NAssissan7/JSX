@@ -81,7 +81,7 @@ let user_eval = function (code) {
         this.handler = handler;
         this.eventid = eventids++;
     }
-    let run_event = function (eventid, args) {
+    let run_event = function (eventid) {
         let event = events[eventid];
         if (!event) return
         let old_process = c_process;
@@ -91,7 +91,7 @@ let user_eval = function (code) {
             c_process = event.process;
             c_thread = event.thread;
             c_user = event.user;
-            event.handler(args);
+            event.handler();
         } catch (e) {
             console.error("Event " + eventid + " encountered an error (PID: " + c_process.pid + " [" + c_thread.pid + "]): " + e);
             console.error(e);
@@ -254,7 +254,7 @@ let user_eval = function (code) {
         let file = descriptor.file;
         descriptor.filesystem.edit_file(descriptor.file_index, data, descriptor.mode);
         for (let i = 0; i < file.events.length; i++)
-            run_event(file.events[i], file.data);
+            run_event(file.events[i]);
         return descriptor.file.data;
     }
     function close(fd) {
