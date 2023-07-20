@@ -50,6 +50,7 @@ create_file("/etc/init.d/keyboard", function () {
     write(fd, key);
     document.onkeydown = function(event) {
         write(fd, event.key);
+        event.preventDefault();
     };
     this.main = function () {
         exit();
@@ -59,11 +60,12 @@ create_file("/etc/init.d/keyboard", function () {
 // Graphics driver
 create_file("/etc/init.d/graphics", function() {
     let canvas = document.getElementById("canvas");
+    mkdir("/dev/js");
     let fd;
-    fd = open("/dev/canvas0", "w");
+    fd = open("/dev/js/canvas0", "w");
     write(fd, canvas);
     close(fd);
-    fd = open("/dev/graphics0", "w");
+    fd = open("/dev/js/graphics0", "w");
     write(fd, canvas.getContext("2d"));
     this.main = function() {
         // Color black
@@ -77,7 +79,7 @@ create_file("/etc/init.d/graphics", function() {
 // Virtual console
 create_file("/etc/init.d/ttyd", function() {
     // Create a text framebuffer where each element influences a character on-screen
-    let fd = open("/dev/graphics0", "r");
+    let fd = open("/dev/js/graphics0", "r");
     let graphics = read(fd);
     close(fd);
     // let text_size = 16;
@@ -88,6 +90,7 @@ create_file("/etc/init.d/ttyd", function() {
 
     // Create constants for the text width and height
     let text_size = graphics.measureText("█");
+    text_size.width = Math.round(text_size.width);
     text_size.height = Math.round(text_size.width * height_ratio);
 
     // Create text grid
@@ -103,46 +106,49 @@ create_file("/etc/init.d/ttyd", function() {
     write(fd,  {
         width: width,
         height: height,
-        framebuffer: "/dev/tty0fb"
+        framebuffer: "/dev/stdin"
     });
     close(fd);
-    fd = open("/dev/tty0fb", "w");
-    write(fd, [0, ""]);
+    fd = open("/dev/stdin", "w");
+    write(fd, "");
     close(fd);
+    let char;
 
     this.main = function(){
-        let graphics = read(open("/dev/graphics0", "r"));
-        let fd = open("/dev/tty0fb", "r");
+        let graphics = read(open("/dev/js/graphics0", "r"));
+        let fd = open("/dev/stdin", "r");
+
+        let text_size_width_rounded = Math.round(text_size.width);
         poll(fd, function() {
-            let i = read(fd)[0];
-            let char = read(fd)[1];
-            buffer[i] = char;
-            // Dynamic graphics drawing: a better, faster way to draw characters to the screen
-            let x = (i % width) * text_size.width;
-            let y = (Math.floor(i / width)) * text_size.height;
-            // Draw a background where the character will be placed
-            graphics.fillStyle = "black"
-            graphics.fillRect(x - 1, y + 2, text_size.width + 1, text_size.height + 1);
-            // Draw the character
-            graphics.fillStyle = "white";
-            graphics.fillText(buffer[i], Math.floor(x), Math.floor(y + text_size.height));
-        });
-        thread(function() {
+            let string = read(fd);
             // Fill background
             graphics.fillStyle = "black"
             graphics.fillRect(0, 0, canvas_width, canvas_height);
+            
+            // let y = (Math.floor(i / width)) * text_size.height;
+            let y = text_size.height;
+            let x = 0;
 
-            // Place all characters in the correct place on the symbol grid
+            // Fill white text
             graphics.fillStyle = "white";
-            for(let i = 0; i < buffer.length; i++) {
-                let x = (i % width) * text_size.width;
-                let y = (Math.floor(i / width) + 1) * text_size.height;
-
-                graphics.fillText(buffer[i], Math.round(x), Math.round(y));
+            for(let i = 0; i < string.length; i++) {
+                char = string[i];
+                if(char === '\n') {
+                    y += text_size.height;
+                    x = 0;
+                    continue;
+                }
+                if(x + text_size_width_rounded >= canvas_width) {
+                    y += text_size.height;
+                    x = 0;
+                }
+                if(x < canvas_width && y < canvas_height) { // Don't draw anything outside display bounds
+                    // Draw the character
+                    graphics.fillText(string[i], x, y);
+                }
+                x += text_size_width_rounded;
             }
-            sleep(100);
-            exit();
-        })
+        });
         exit();
     }
 });
@@ -162,7 +168,7 @@ create_file("/etc/init.d/cookiedisk", function() {
         var cookie = decodeURIComponent(document.cookie.trim());
         cookie = cookie.substring(3);
 
-        let fd = open("/dev/cookie", "w");
+        let fd = open("/dev/js/cookie", "w");
         write(fd, document.cookie);
         close(fd);
         // See if there is an error in parsing the cookie filesystem

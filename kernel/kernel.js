@@ -1,7 +1,4 @@
 create_file = undefined;
-let user_eval = function (code) {
-    eval(code);
-}
 {
     // Set the root filesystem
     let root = jsx_system;
@@ -37,7 +34,7 @@ let user_eval = function (code) {
 
     // Processes
     let processes = [];
-    let c_process = { file_descriptors: [] };
+    let c_process = { descriptors: [] };
     let c_thread = {};
     let pids = 0;
     let Thread = function (exec, process) {
@@ -56,7 +53,7 @@ let user_eval = function (code) {
         this.pid = pids;
         this.threads = [];
         this.user = 0;
-        this.file_descriptors = [];
+        this.descriptors = [];
         this.events = [];
         this.suspended = false;
         this.dead = false;
@@ -249,7 +246,7 @@ let user_eval = function (code) {
         if (file.filetype === "d") throw new Error("Specified file is a directory.");
         let fd = new file_descriptor(file_info.file, file_info.index, mode, file_info.file.permissions, file_info.filesystem, c_user);
         file_descriptors[fd_indexes] = fd;
-        c_process.file_descriptors[fd_indexes] = fd;
+        c_process.descriptors.push(fd_indexes);
         return fd_indexes++;
     }
     function read(fd) {
@@ -266,7 +263,7 @@ let user_eval = function (code) {
     function close(fd) {
         if(!file_descriptors[fd]) throw new Error("File descriptor does not exist.");
         file_descriptors[fd] = undefined;
-        c_process.file_descriptors[fd] = undefined;
+        c_process.descriptors.splice(c_process.descriptors.indexOf(fd), 1);
     }
     function unlink(path) {
         let file = get_file(path);
@@ -421,7 +418,7 @@ let user_eval = function (code) {
     log("Kernelfs created");
 
     // Set root filesystem to the 'root' filesystem variable. It is defined at the beginning of the file.
-    if(!root) panic("Critical boot failure: No root filesystem was defined.")
+    if(!root) panic("Critical boot failure: No root filesystem was defined.");
     root.mountid = 0;
     unmount_kernelfs_mounts();
     mountpoints[0] = root;
@@ -482,38 +479,13 @@ let user_eval = function (code) {
                 threads.splice(0, 1); // Clear the thread from the execution stack
             }
             c_thread = {};
-            c_process = { file_descriptors: [] };
+            c_process = { descriptors: [] };
             c_user = 0;
         }
     }
 
     // Kernel power driver
-    let cycle_rate = 0;
-    let power_manager = function () {
-        /* The job of this kernel driver is to only reexecute the kernel if another process is wanting the
-           scheduler to be executed, so that it does not run extra, useless cycles. This keeps system efficiency
-           Significantly higher and reduces CPU load.
-        */
-        if (!suspended) {
-            let min_exec_time = Infinity;
-            let time = get_time();
-            for (let i = 0; i < processes.length; i++) {
-                let process = processes[i];
-                for (let l = 0; l < process.threads.length; l++) {
-                    let thread = process.threads[l];
-                    if (thread.sleep_time > -1) {
-                        let exec_time = thread.last_execution + thread.sleep_time - time;
-                        if (exec_time < min_exec_time)
-                            min_exec_time = exec_time;
-                    }
-                }
-            }
-            if (min_exec_time !== Infinity)
-                cycle_rate = Math.max(min_exec_time, 0);
-            else
-                cycle_rate = 0;
-        }
-    }
+    let cycle_rate = 5;
 
     // Process systemcalls
     function exec(path, args) {
@@ -552,7 +524,6 @@ let user_eval = function (code) {
     // Main loop
     let main = function (static) {
         scheduler();
-        power_manager();
         if (panicked === false && !static)
             setTimeout(main, cycle_rate);
     }
