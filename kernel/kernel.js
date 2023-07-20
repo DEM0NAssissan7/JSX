@@ -21,11 +21,6 @@ create_file = undefined;
     function getuid() {
         return c_user;
     }
-    let is_root = function() {
-        if(c_user === 0)
-            return true;
-        return false;
-    }
     let is_permitted = function(user) {
         if(c_user === user || c_user === 0)
             return true;
@@ -34,7 +29,7 @@ create_file = undefined;
 
     // Processes
     let processes = [];
-    let c_process = { descriptors: [] };
+    let c_process = { descriptors: [], working_directory: "/" };
     let c_thread = {};
     let pids = 0;
     let Thread = function (exec, process) {
@@ -44,17 +39,23 @@ create_file = undefined;
         this.sleep_time = -1;
         this.pid = pids++;
         this.process = process;
+        this.index = process.threads.length;
         this.suspended = false;
         this.dead = false;
     }
-    let Process = function (code, args) {
-        this.working_directory = "/";
+    let Process = function (code, args, path) {
+        this.working_directory = c_process.working_directory;
+        if(!this.working_directory) c_process.working_directory = "/";
+        this.path = expand_filepath(path);
+        this.cmdline = get_filename(path);
         this.args = args;
         this.pid = pids;
         this.threads = [];
+        this.parent = c_process;
         this.user = 0;
         this.descriptors = [];
         this.events = [];
+        this.waiting = false;
         this.suspended = false;
         this.dead = false;
 
@@ -62,13 +63,16 @@ create_file = undefined;
         this.threads.push(new Thread(this.code.main, this)); // Push the main thread to the stack
     }
     Process.prototype.die = function() {
+        this.parent.waiting = false;
         this.threads = [];
-        for(let i = 0; i < this.events.length; i++) // Remove all events
-            rmevent(this.events[i]);
+        for(; this.events.length !== 0; this.events.splice(0, 1))// Remove all open events
+            events[this.events[0]] = undefined;
+        for(; this.descriptors.length !== 0; this.descriptors.splice(0, 1)) // Close all open file descriptors
+            file_descriptors[this.descriptors[0]] = undefined;
         this.dead = true;
     }
     let get_process = function(pid) {
-        return processes.find(function(p){return p.pid === pid});
+        return processes.find(function(p){ return p.pid === pid });
     }
 
     // Events
@@ -83,7 +87,8 @@ create_file = undefined;
     }
     let run_event = function (eventid) {
         let event = events[eventid];
-        if (!event) return
+        if (!event) return;
+        if (event.process.waiting || event.process.suspended || event.process.dead) return;
         let old_process = c_process;
         let old_thread = c_thread;
         let old_user = c_user;
@@ -93,9 +98,12 @@ create_file = undefined;
             c_user = event.user;
             event.handler();
         } catch (e) {
-            console.error("Event " + eventid + " encountered an error (PID: " + c_process.pid + " [" + c_thread.pid + "]): " + e);
+            console.error("Event " + eventid + " encountered an error (PID: " + c_process.pid + " [" + c_process.cmdline + "]): " + e);
             console.error(e);
-            rmevent(event.eventid);
+            if(event) {
+                event.process.events.splice(event.process.events.indexOf(event.eventid), 1); // Remove event from parent process
+                events[event.eventid] = undefined;
+            }
         }
         c_process = old_process;
         c_thread = old_thread;
@@ -132,6 +140,8 @@ create_file = undefined;
             string += "/" + prefix_path_strings[i];
         for (let i = 0; i < input_path_strings.length; i++)
             string += "/" + input_path_strings[i];
+        if(string.length === 0)
+            string = "/";
     
         return string;
     }
@@ -155,38 +165,47 @@ create_file = undefined;
         let file = filesystem.get_file(0);
         let referenced_file = file;
         let parent = file;
-        for (let i = 0; i < path_names.length; i++) {
-            let success = false;
-            for (let j = 0; j < file.data.length; j++) {
-                let child_file = filesystem.get_file(file.data[j]);
-                if (!child_file) break;
-                if (child_file.filename === path_names[i]) {
-                    success = true;
-                    index = file.data[j]
-                    parent = file;
-                    referenced_file = child_file;
-                    file = child_file;
-
-                    if (child_file.is_mountpoint === true) {
-                        filesystem = mountpoints[file.mountid];
-                        file = filesystem.get_file(0);
+        while(true) {
+            let is_symlink = false;
+            for (let i = 0; i < path_names.length; i++) {
+                let success = false;
+                for (let j = 0; j < file.data.length; j++) {
+                    let child_file = filesystem.get_file(file.data[j]);
+                    if (!child_file) break;
+                    if (child_file.filename === path_names[i]) {
+                        success = true;
+                        index = file.data[j]
+                        parent = file;
+                        referenced_file = child_file;
+                        file = child_file;
+    
+                        if (child_file.is_mountpoint === true) {
+                            filesystem = mountpoints[file.mountid];
+                            file = filesystem.get_file(0);
+                        }
+                        break;
                     }
+                }
+                if(file.filetype === "l") {
+                    path_names = get_pathnames(file.data);
+                    break;
+                }
+                if (file.filetype !== "d") break;
+                if (success === false) {
+                    if (!suppress_error) throw new Error("File '" + expand_filepath(path) + "' does not exist.");
                     break;
                 }
             }
-            if (file.filetype !== "d") break;
-            if (success === false) {
-                if (!suppress_error) throw new Error("File '" + expand_filepath(path) + "' does not exist.");
-                break;
+            if(file.filetype !== "l"){
+                return {
+                    filesystem: filesystem,
+                    index: index,
+                    file: file,
+                    referenced_file: referenced_file,
+                    parent: parent
+                };
             }
         }
-        return {
-            filesystem: filesystem,
-            index: index,
-            file: file,
-            referenced_file: referenced_file,
-            parent: parent
-        };
     }
     let check_file_exists = function (path) {
         try {
@@ -216,7 +235,8 @@ create_file = undefined;
     }
     let get_file_descriptor = function(fd) {
         let descriptor = file_descriptors[fd];
-        if(!descriptor) throw new Error("File descriptor does not exist.");
+        if(!descriptor) return;
+        // if(!descriptor) throw new Error("File descriptor " + fd + " does not exist.");
         if(!is_permitted(descriptor.user)) throw new Error("Not permitted to get file descriptor");
         return descriptor;
     }
@@ -226,10 +246,11 @@ create_file = undefined;
     }
     function rmdir(path) {
         let file = get_file(path);
+        if(file.file.is_mountpoint === true) throw new Error(expand_filepath(path) + " must be unmounted first.")
         if (file.file.data.length === 0) {
             file.parent.data.splice(file.parent.data.indexOf(file.index), 1);
             file.filesystem.remove_file(file.index);
-        } else throw new Error("Specified directory is not empty.");
+        } else throw new Error("Directory " + expand_filepath(path) + " is not empty.");
     }
     function open(path, mode) {
         let file_info;
@@ -238,7 +259,7 @@ create_file = undefined;
         } catch (e) {
             if (mode === "w" || mode === "a")
                 create_file(path, "", "-"); // Create file if it does not exist
-            else throw new Error("Cannot create '" + expand_filepath(path) + "': not opened in writing mode");
+            else throw new Error("'" + expand_filepath(path) + "' does not exist.");
             file_info = get_file(path);
         }
 
@@ -254,6 +275,7 @@ create_file = undefined;
     }
     function write(fd, data) {
         let descriptor = get_file_descriptor(fd);
+        if(!descriptor) return 1;
         let file = descriptor.file;
         descriptor.filesystem.edit_file(descriptor.file_index, data, descriptor.mode);
         for (let i = 0; i < file.events.length; i++)
@@ -264,6 +286,9 @@ create_file = undefined;
         if(!file_descriptors[fd]) throw new Error("File descriptor does not exist.");
         file_descriptors[fd] = undefined;
         c_process.descriptors.splice(c_process.descriptors.indexOf(fd), 1);
+    }
+    function symlink(target, path) {
+        create_file(path, expand_filepath(target), "l");
     }
     function unlink(path) {
         let file = get_file(path);
@@ -293,7 +318,11 @@ create_file = undefined;
         events[eventid] = undefined;
     }
     function chdir(path) {
-        c_process.working_directory = path;
+        if(!check_file_exists(path)) throw new Error(expand_filepath(path) + " does not exist.");
+        c_process.working_directory = expand_filepath(path);
+    }
+    function getpwd() {
+        return c_process.working_directory;
     }
     function readdir(path) {
         let file_descriptor = get_file(path);
@@ -355,10 +384,6 @@ create_file = undefined;
         For example, procfs needs access to the processes[] array in order to
         be able to perform privelleged tasks on processes.
     */
-    let procfs = function() {
-        
-    }
-
 
     // Initialize root virtual filesystem
     let tmprootfs = new JSFS();
@@ -401,12 +426,55 @@ create_file = undefined;
         }
     }
 
-    // Procfs
+    let procfs;
     {
-        create_kernelfs_mount("/proc");
-        fd = open("/proc/uptime", "w");
-        write(fd, {});
+        // ProcFS: Filesystem for viewing process information
+        let ProcFS = function() {
+            this.path = "/";
+            let file = new Inode("/", [], "d", 0, 0);
+            file.is_mountpoint = true;
+            this.files = [file];
+            this.indexes = 1;
+            this.mountid = null;
+            this.filesystem_type = "JSFS";
+        }
+        ProcFS.prototype.get_file = function(index) {
+            let file = this.files[index];
+            if(file.type === "d") return file.data;
+            return file.data();
+        }
+        ProcFS.prototype.create_file = function(path, data, filetype, parent_file) {
+            let index = this.indexes++;
+            let relative_path = parent_file.path + "/" + get_filename(path);
+            if(parent_file.path === "/") relative_path = "/" + get_filename(path);
+            let file = new Inode(relative_path, data, filetype, index, getuid(), 0);
+            file.permissions = 111;
+            this.files.push(file);
+            parent_file.data.push(index);
+            return index;
+        }
+        ProcFS.prototype.edit_file = function() {
+            throw new Error("Cannot edit procfs file");
+        }
+        ProcFS.prototype.add_process = function(process) {
+            // Create process reference in filesystem
+            let parent = this.get_file(this.create_file(process.pid, [], "d", this.get_file(0)));
+            let prefix = "/" + process.pid + "/";
+            this.create_file(prefix + "cmdline", function() { return process.cmdline; }, "-", parent);
+            this.create_file(prefix + "fd", [], "d", parent);
+        }
+        ProcFS.prototype.remove_process = function(pid) {
+            let prefix = "/" + process.pid + "/";
+        }
+        ProcFS.prototype.remove_file = function(index) {
+            this.files[index] = undefined;
+        }
+        procfs = new ProcFS();
+        fd = open("/dev/procfs", "w");
+        write(fd, procfs);
         close(fd);
+        mkdir("/proc");
+        mount("/dev/procfs", "/proc");
     }
 
     create_kernelfs_mount("/sys");
@@ -441,9 +509,10 @@ create_file = undefined;
             // Push ready threads into the execution line
             for (let i = 0; i < processes.length; i++) {
                 let process = processes[i];
-                if (process.suspended === true) continue;
+                if (process.suspended === true || process.waiting === true) continue;
                 for (let j = 0; j < process.threads.length; j++) {
                     let thread = process.threads[j];
+                    if(!thread) continue;
                     if (thread.dead === true) {
                         process.threads.splice(j, 1);
                         continue;
@@ -452,6 +521,10 @@ create_file = undefined;
                         thread.queued = true;
                         threads.push(thread);
                     }
+                }
+                if(process.threads.length === 0 && process.descriptors.length === 0 || process.dead === true) {
+                    process.die();
+                    processes.splice(i, 1); // Get rid of dead processes
                 }
             }
 
@@ -472,9 +545,11 @@ create_file = undefined;
                 try {
                     thread.exec(c_process.args);
                 } catch (e) {
-                    console.error("Process " + c_process.pid + " (" + thread.pid + ") encountered an error: " + e);
-                    console.error(e);
-                    thread.process.suspended = true;
+                    if(e.name === "Error") {
+                        console.error("Process " + c_process.pid + " (" + thread.pid + ") encountered an error: " + e);
+                        console.error(e);
+                        thread.process.dead = true;
+                    }
                 }
                 threads.splice(0, 1); // Clear the thread from the execution stack
             }
@@ -485,31 +560,43 @@ create_file = undefined;
     }
 
     // Kernel power driver
-    let cycle_rate = 5;
+    let cycle_rate = 4;
 
     // Process systemcalls
     function exec(path, args) {
         // Creates a new process that runs the program at the specified path
         if (!check_file_exists(path)) throw new Error("Cannot execute '" + expand_filepath(path) + "': path does not exist");
+        let file_info = get_file(path);
+        if(!is_permitted(file_info.file.user)) throw new Error("Cannot execute '" + expand_filepath(path) + "': Permission denied")
         try {
-            processes.push(new Process(get_file(path).file.data, args));
+            let process = new Process(file_info.file.data, args, expand_filepath(path));
+            processes.push(process);
+            return process.pid;
         } catch (e) {
-            console.error("Failed to execute '" + expand_filepath(path) + "': " + e);
+            console.error("Failed to initialize '" + expand_filepath(path) + "': " + e);
             console.error(e);
         }
     }
     function kill(pid) {
-        get_process(pid).dead = true;
+        let process = get_process(pid);
+        if(!process) throw new Error("Process with PID " + pid + " does not exist.");
+        process.die();
     }
     function thread(code) {
         c_process.threads.push(new Thread(code, c_process));
+    }
+    function thread_cancel() {
+        c_process.threads[c_thread.index] = undefined;
     }
     const average_js_timeout_error = 1.7;
     function sleep(timeout) {
         c_thread.sleep_time = timeout - average_js_timeout_error;
     }
+    function wait() {
+        c_process.waiting = true;
+    }
     function exit() {
-        c_thread.dead = true;
+        c_process.die();
     }
 
     // Panic

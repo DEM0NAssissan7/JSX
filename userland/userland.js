@@ -5,3 +5,10 @@ create_file("/etc/init.d/userland", function() {
         exit();
     }
 });
+create_file("/etc/path", [
+    "",
+    "/bin/",
+    "/usr/bin/",
+    "/home/.local/bin/",
+    "/home/bin/"
+]);
